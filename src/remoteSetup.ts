@@ -15,11 +15,21 @@ export function generateSetupScript(proxyHost: string, proxyPort: number, extens
 export function generateRollbackScript(): string {
     return `#!/bin/bash
 set -e
-BAK=$(find "$HOME/.antigravity-server" -path "*/extensions/antigravity/bin/*" -name "language_server_linux_*.bak" -type f 2>/dev/null | head -1)
-[ -z "$BAK" ] && echo "Nothing to rollback" && exit 0
-TARGET="\${BAK%.bak}"
-[ -f "$TARGET" ] && rm -f "$TARGET"
-mv "$BAK" "$TARGET"
-echo "Rollback complete"
+
+# Find all backup files and restore them
+BAKS=$(find "$HOME/.antigravity-server" -path "*/extensions/antigravity/bin/*" -name "language_server_linux_*.bak" -type f 2>/dev/null)
+[ -z "$BAKS" ] && echo "Nothing to rollback" && exit 0
+
+RESTORED=0
+while IFS= read -r BAK; do
+    [ -z "$BAK" ] && continue
+    TARGET="\${BAK%.bak}"
+    echo "Restoring: $TARGET"
+    [ -f "$TARGET" ] && rm -f "$TARGET"
+    mv "$BAK" "$TARGET"
+    RESTORED=$((RESTORED + 1))
+done <<< "$BAKS"
+
+echo "Rollback complete: $RESTORED file(s) restored"
 `;
 }

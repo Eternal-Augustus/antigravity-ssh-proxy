@@ -4,7 +4,7 @@
   "displayName": "Antigravity SSH Proxy (ATP)",
   "description": "Easily fix connectivity issues for the Antigravity remote server. This extension ensures your remote coding tools can bypass server firewalls by securely routing Antigravity's traffic through your local computer or a designated server gateway.",
   "icon": "ATP.jpg",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/dinobot22/antigravity-ssh-proxy"
@@ -60,6 +60,14 @@
       {
         "command": "antigravity-ssh-proxy.refreshStatus",
         "title": "Antigravity SSH Proxy: Refresh Status"
+      },
+      {
+        "command": "antigravity-ssh-proxy.diagnose",
+        "title": "Antigravity SSH Proxy: Run Diagnostics"
+      },
+      {
+        "command": "antigravity-ssh-proxy.showTrafficPanel",
+        "title": "Antigravity SSH Proxy: Show Traffic Monitor"
       }
     ],
     "configuration": {
@@ -88,6 +96,12 @@
           "default": 7890,
           "scope": "machine-overridable",
           "description": "The port on the remote server that should be used as the proxy gateway."
+        },
+        "antigravity-ssh-proxy.showStatusOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine-overridable",
+          "description": "Show a status notification when connecting to a remote server. Displays proxy status and whether reload is needed."
         }
       }
     }

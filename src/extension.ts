@@ -7,11 +7,15 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { generateSetupScript, generateRollbackScript } from './remoteSetup';
 import { StatusManager } from './statusManager';
+import { DiagnosticPanel } from './diagnostics/diagnosticPanel';
+import { TrafficPanel } from './traffic/trafficPanel';
 
 const execAsync = promisify(exec);
 
 let outputChannel: vscode.OutputChannel;
 let statusManager: StatusManager;
+let diagnosticPanel: DiagnosticPanel;
+let trafficPanel: TrafficPanel;
 
 function log(message: string): void {
 	const timestamp = new Date().toISOString();
@@ -31,6 +35,34 @@ async function checkPortAvailable(host: string, port: number): Promise<boolean> 
 		socket.on('timeout', () => { socket.destroy(); resolve(false); });
 		socket.on('error', () => { socket.destroy(); resolve(false); });
 		socket.connect(port, host);
+	});
+}
+
+/**
+ * Check if mgraftcp is currently running (i.e., Language Server is using proxy)
+ */
+async function isMgraftcpRunning(): Promise<boolean> {
+	try {
+		const { stdout } = await execAsync('pgrep -f mgraftcp');
+		return stdout.trim().length > 0;
+	} catch {
+		// pgrep returns non-zero if no process found
+		return false;
+	}
+}
+
+/**
+ * Show reload window prompt with optional auto-reload after timeout
+ */
+function promptReloadWindow(message: string): void {
+	vscode.window.showInformationMessage(
+		message,
+		'Reload Now',
+		'Later'
+	).then(selection => {
+		if (selection === 'Reload Now') {
+			vscode.commands.executeCommand('workbench.action.reloadWindow');
+		}
 	});
 }
 
@@ -152,6 +184,14 @@ export function activate(context: vscode.ExtensionContext) {
 	statusManager = new StatusManager(isRunningLocally(), context);
 	context.subscriptions.push(statusManager);
 
+	// 初始化诊断面板
+	diagnosticPanel = new DiagnosticPanel(context);
+	context.subscriptions.push({ dispose: () => diagnosticPanel.dispose() });
+
+	// 初始化流量面板
+	trafficPanel = new TrafficPanel(context);
+	context.subscriptions.push({ dispose: () => trafficPanel.dispose() });
+
 	// 注册显示输出窗口的命令
 	context.subscriptions.push(
 		vscode.commands.registerCommand('antigravity-ssh-proxy.showOutput', () => {
@@ -170,6 +210,20 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('antigravity-ssh-proxy.refreshStatus', async () => {
 			await statusManager.refreshStatus();
+		})
+	);
+
+	// 注册诊断命令
+	context.subscriptions.push(
+		vscode.commands.registerCommand('antigravity-ssh-proxy.diagnose', async () => {
+			await diagnosticPanel.show();
+		})
+	);
+
+	// 注册流量监控命令
+	context.subscriptions.push(
+		vscode.commands.registerCommand('antigravity-ssh-proxy.showTrafficPanel', () => {
+			trafficPanel.show();
 		})
 	);
 
@@ -266,6 +320,37 @@ async function activateLocal(context: vscode.ExtensionContext) {
 	);
 }
 
+/**
+ * Ensure mgraftcp binary has execute permission
+ */
+async function ensureMgraftcpExecutable(extensionPath: string): Promise<void> {
+	const arch = os.arch();
+	let binaryName: string;
+
+	switch (arch) {
+		case 'x64':
+		case 'amd64':
+			binaryName = 'mgraftcp-linux-amd64';
+			break;
+		case 'arm64':
+		case 'aarch64':
+			binaryName = 'mgraftcp-linux-arm64';
+			break;
+		default:
+			log(`Unsupported architecture: ${arch}`);
+			return;
+	}
+
+	const mgraftcpPath = path.join(extensionPath, 'resources', 'bin', binaryName);
+
+	try {
+		await execAsync(`chmod +x "${mgraftcpPath}"`);
+		log(`Set execute permission for ${mgraftcpPath}`);
+	} catch (error) {
+		log(`Failed to set execute permission for mgraftcp: ${error}`);
+	}
+}
+
 async function activateRemote(context: vscode.ExtensionContext) {
 	const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 	// Remote only cares about remoteProxyHost and remoteProxyPort
@@ -279,6 +364,9 @@ async function activateRemote(context: vscode.ExtensionContext) {
 
 	// Use extensionUri.fsPath for correct remote path resolution
 	const extensionPath = context.extensionUri.fsPath;
+
+	// Ensure mgraftcp binary has execute permission before setup
+	await ensureMgraftcpExecutable(extensionPath);
 
 	// 设置配置变更回调（用于面板中修改配置时触发）
 	statusManager.setConfigChangeCallback(async () => {
@@ -340,6 +428,60 @@ async function activateRemote(context: vscode.ExtensionContext) {
 			vscode.window.showInformationMessage(ok ? `Proxy OK` : `Proxy NOT reachable`);
 		})
 	);
+
+	// Show startup status notification if enabled
+	const showStatusOnStartup = config.get<boolean>('showStatusOnStartup', true);
+	if (showStatusOnStartup) {
+		// Delay slightly to let setup complete
+		setTimeout(async () => {
+			await showStartupStatus(remoteHost, remotePort);
+		}, 2000);
+	}
+}
+
+/**
+ * Show startup status notification
+ */
+async function showStartupStatus(proxyHost: string, proxyPort: number): Promise<void> {
+	try {
+		const proxyReachable = await checkPortAvailable(proxyHost, proxyPort);
+		const proxyActive = await isMgraftcpRunning();
+
+		let message: string;
+		let actions: string[] = [];
+
+		if (proxyReachable && proxyActive) {
+			// Everything is working
+			message = `✅ Proxy active (${proxyHost}:${proxyPort})`;
+		} else if (proxyReachable && !proxyActive) {
+			// Proxy is reachable but not active - need reload
+			message = `⚠️ Proxy configured but not active. Reload to enable.`;
+			actions = ['Reload Now', 'Dismiss'];
+		} else if (!proxyReachable) {
+			// Proxy not reachable
+			message = `❌ Proxy not reachable at ${proxyHost}:${proxyPort}. Check local proxy and SSH tunnel.`;
+			actions = ['Run Diagnostics', 'Dismiss'];
+		} else {
+			message = `⚠️ Proxy status unknown`;
+			actions = ['Run Diagnostics', 'Dismiss'];
+		}
+
+		log(`Startup status: ${message}`);
+
+		if (actions.length > 0) {
+			const selection = await vscode.window.showInformationMessage(message, ...actions);
+			if (selection === 'Reload Now') {
+				vscode.commands.executeCommand('workbench.action.reloadWindow');
+			} else if (selection === 'Run Diagnostics') {
+				vscode.commands.executeCommand('antigravity-ssh-proxy.diagnose');
+			}
+		} else {
+			// Just show a brief notification for success
+			vscode.window.showInformationMessage(message);
+		}
+	} catch (error) {
+		log(`Startup status check failed: ${error}`);
+	}
 }
 
 /**
@@ -365,19 +507,31 @@ async function runSetupScriptSilently(proxyHost: string, proxyPort: number, exte
 
 		log(`Setup output: ${output}`);
 
-		if (output.includes('Already configured')) {
-			log('Setup: Already configured');
+		// Check if this is a new configuration
+		const isNewConfig = output.includes('Setup complete') || 
+			(output.includes('configured') && !output.includes('Already configured'));
+
+		if (isNewConfig) {
+			// New configuration - always prompt reload
+			log('Setup: New configuration applied');
+			promptReloadWindow(
+				'Antigravity proxy configured. Reload window to apply changes to the language server.'
+			);
 			return true;
-		} else if (output.includes('Setup complete') || output.includes('configured')) {
-			log('Setup: Completed successfully');
-			vscode.window.showInformationMessage(
-				'Antigravity Remote Setup updated. Please reload window to apply changes to the language server.',
-				'Reload Window'
-			).then(selection => {
-				if (selection === 'Reload Window') {
-					vscode.commands.executeCommand('workbench.action.reloadWindow');
-				}
-			});
+		} else if (output.includes('Already configured')) {
+			log('Setup: Already configured');
+			
+			// Check if Language Server is actually using the proxy
+			const proxyActive = await isMgraftcpRunning();
+			if (!proxyActive) {
+				// Wrapper is configured but LS isn't using proxy (started before wrapper was set up)
+				log('Setup: Proxy configured but not active, prompting reload');
+				promptReloadWindow(
+					'Proxy is configured but not active. Reload window to enable proxy for the language server.'
+				);
+			} else {
+				log('Setup: Proxy is active, no reload needed');
+			}
 			return true;
 		}
 		return false;

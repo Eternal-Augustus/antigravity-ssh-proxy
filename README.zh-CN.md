@@ -1,5 +1,5 @@
 <div align="center">
-<img src="ATP.jpg" width="128" />
+<img src="https://raw.githubusercontent.com/dinobot22/antigravity-ssh-proxy/main/ATP.jpg" width="128" />
 
 # Antigravity SSH Proxy (ATP)
 

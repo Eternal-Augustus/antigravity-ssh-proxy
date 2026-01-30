@@ -173,6 +173,12 @@ export class StatusManager {
                     case 'saveConfig':
                         await this.saveConfig(message.config);
                         break;
+                    case 'openDiagnostics':
+                        vscode.commands.executeCommand('antigravity-ssh-proxy.diagnose');
+                        break;
+                    case 'openTrafficPanel':
+                        vscode.commands.executeCommand('antigravity-ssh-proxy.showTrafficPanel');
+                        break;
                 }
             },
             undefined,
@@ -594,6 +600,24 @@ export class StatusManager {
             </button>
         </div>
         
+        <div class="actions" style="margin-top: 8px;">
+            <button class="btn btn-secondary" onclick="openDiagnostics()">
+                <svg viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/>
+                </svg>
+                Diagnose
+            </button>
+            ${!isLocal ? `
+            <button class="btn btn-secondary" onclick="openTrafficPanel()">
+                <svg viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M0 0h1v15h15v1H0V0zm14.817 3.113a.5.5 0 0 1 .07.704l-4.5 5.5a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61 4.15-5.073a.5.5 0 0 1 .704-.07z"/>
+                </svg>
+                Traffic
+            </button>
+            ` : ''}
+        </div>
+        
         <div class="footer">
             <span>Auto refresh in <span class="countdown-num" id="countdown">${this.secondsUntilRefresh}</span>s</span>
             <span>Updated ${status.lastUpdated.toLocaleTimeString()}</span>
@@ -619,6 +643,14 @@ export class StatusManager {
                 config.remoteProxyPort = parseInt(document.getElementById('remoteProxyPort').value);
             }
             vscode.postMessage({ command: 'saveConfig', config });
+        }
+        
+        function openDiagnostics() {
+            vscode.postMessage({ command: 'openDiagnostics' });
+        }
+        
+        function openTrafficPanel() {
+            vscode.postMessage({ command: 'openTrafficPanel' });
         }
         
         window.addEventListener('message', event => {
