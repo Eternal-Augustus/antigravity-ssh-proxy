@@ -6,15 +6,17 @@ import * as fs from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { generateSetupScript, generateRollbackScript } from './remoteSetup';
+import { StatusManager } from './statusManager';
 
 const execAsync = promisify(exec);
 
-let debugChannel: vscode.OutputChannel;
+let outputChannel: vscode.OutputChannel;
+let statusManager: StatusManager;
 
-function debug(message: string): void {
+function log(message: string): void {
 	const timestamp = new Date().toISOString();
 	const location = isRunningLocally() ? '[LOCAL]' : '[REMOTE]';
-	debugChannel?.appendLine(`${timestamp} ${location} ${message}`);
+	outputChannel?.appendLine(`${timestamp} ${location} ${message}`);
 }
 
 function isRunningLocally(): boolean {
@@ -70,7 +72,7 @@ async function updateSSHConfigFile(remotePort: number, localPort: number, enable
 		if (enable) {
 			// 1. Create/Update the config.antigravity file
 			const antiContent = [
-				'# Antigravity Interface Configuration',
+				'# Antigravity SSH Proxy Configuration',
 				`# Generated at: ${new Date().toISOString()}`,
 				'Match all',
 				`    RemoteForward ${remotePort} 127.0.0.1:${localPort}`,
@@ -79,7 +81,7 @@ async function updateSSHConfigFile(remotePort: number, localPort: number, enable
 				'',
 			].join('\n');
 			await fs.writeFile(antiConfigPath, antiContent, 'utf-8');
-			debug(`Updated ${antiConfigPath}`);
+			log(`Updated ${antiConfigPath}`);
 
 			// 2. Ensure Include line exists in main config
 			let mainContent = '';
@@ -91,7 +93,7 @@ async function updateSSHConfigFile(remotePort: number, localPort: number, enable
 				// Prepend to the top for maximum compatibility
 				mainContent = `${INCLUDE_LINE}\n${mainContent}`;
 				await fs.writeFile(mainConfigPath, mainContent, 'utf-8');
-				debug(`Added Include line to ${mainConfigPath}`);
+				log(`Added Include line to ${mainConfigPath}`);
 			}
 		} else {
 			// 1. Remove Include line from main config
@@ -102,20 +104,20 @@ async function updateSSHConfigFile(remotePort: number, localPort: number, enable
 					mainContent = mainContent.replace(`${INCLUDE_LINE}\n`, '');
 					mainContent = mainContent.replace(INCLUDE_LINE, ''); // fallback if no trailing newline
 					await fs.writeFile(mainConfigPath, mainContent, 'utf-8');
-					debug(`Removed Include line from ${mainConfigPath}`);
+					log(`Removed Include line from ${mainConfigPath}`);
 				}
 			} catch (e) { /* ignore */ }
 
 			// 2. Delete the config.antigravity file
 			try {
 				await fs.unlink(antiConfigPath);
-				debug(`Deleted ${antiConfigPath}`);
+				log(`Deleted ${antiConfigPath}`);
 			} catch (e) { /* ignore if already gone */ }
 		}
 
-		debug(`SSH config updated (enable=${enable})`);
+		log(`SSH config updated (enable=${enable})`);
 	} catch (error) {
-		debug(`SSH config update error: ${error}`);
+		log(`SSH config update error: ${error}`);
 		throw error;
 	}
 }
@@ -140,29 +142,69 @@ async function getSSHConfigStatus(): Promise<{ enabled: boolean; port?: number }
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	debugChannel = vscode.window.createOutputChannel('Antigravity Debug');
-	context.subscriptions.push(debugChannel);
+	// 创建专用的 Output Channel
+	outputChannel = vscode.window.createOutputChannel('Antigravity SSH Proxy');
+	context.subscriptions.push(outputChannel);
 
-	debug(`Activating... isLocal=${isRunningLocally()}`);
+	log(`Activating... isLocal=${isRunningLocally()}`);
+
+	// 初始化状态管理器
+	statusManager = new StatusManager(isRunningLocally(), context);
+	context.subscriptions.push(statusManager);
+
+	// 注册显示输出窗口的命令
+	context.subscriptions.push(
+		vscode.commands.registerCommand('antigravity-ssh-proxy.showOutput', () => {
+			outputChannel.show();
+		})
+	);
+
+	// 注册显示状态面板的命令
+	context.subscriptions.push(
+		vscode.commands.registerCommand('antigravity-ssh-proxy.showStatusPanel', () => {
+			statusManager.showStatusPanel();
+		})
+	);
+
+	// 注册刷新状态的命令
+	context.subscriptions.push(
+		vscode.commands.registerCommand('antigravity-ssh-proxy.refreshStatus', async () => {
+			await statusManager.refreshStatus();
+		})
+	);
+
+	// 启动自动刷新状态
+	statusManager.startAutoRefresh();
 
 	if (isRunningLocally()) {
-		activateLocal(context).catch(err => debug(`activateLocal error: ${err}`));
+		activateLocal(context).catch(err => log(`activateLocal error: ${err}`));
 	} else {
-		activateRemote(context).catch(err => debug(`activateRemote error: ${err}`));
+		activateRemote(context).catch(err => log(`activateRemote error: ${err}`));
 	}
 }
 
 async function activateLocal(context: vscode.ExtensionContext) {
-	const config = vscode.workspace.getConfiguration('antigravity-interface');
+	// 设置配置变更回调（用于面板中修改配置时触发）
+	statusManager.setConfigChangeCallback(async () => {
+		const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+		const lp = cfg.get<number>('localProxyPort', 7890);
+		const rp = cfg.get<number>('remoteProxyPort', 7890);
+		const enabled = cfg.get<boolean>('enableLocalForwarding', true);
+		await updateSSHConfigFile(rp, lp, enabled);
+		statusManager.updateSSHConfigStatus(enabled, rp);
+	});
+
+	const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 	const enable = config.get<boolean>('enableLocalForwarding', true);
 	const localPort = config.get<number>('localProxyPort', 7890);
 	const remotePort = config.get<number>('remoteProxyPort', 7890);
 
-	debug(`Config: enable=${enable}, localPort=${localPort}, remotePort=${remotePort}`);
+	log(`Config: enable=${enable}, localPort=${localPort}, remotePort=${remotePort}`);
 
 	// Auto-setup on activation
 	if (enable) {
 		await updateSSHConfigFile(remotePort, localPort, true);
+		statusManager.updateSSHConfigStatus(true, remotePort);
 		if (!await checkPortAvailable('127.0.0.1', localPort)) {
 			vscode.window.showWarningMessage(
 				`Local proxy at 127.0.0.1:${localPort} is not running. ` +
@@ -171,36 +213,50 @@ async function activateLocal(context: vscode.ExtensionContext) {
 		}
 	}
 
-	// Watch config changes
+	// 初始刷新状态
+	await statusManager.refreshStatus();
+
+	// 同步初始 SSH 配置状态
+	const initialStatus = await getSSHConfigStatus();
+	statusManager.updateSSHConfigStatus(initialStatus.enabled, initialStatus.port);
+
+	// Watch config changes (from VS Code settings)
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
-			if (e.affectsConfiguration('antigravity-interface')) {
-				const cfg = vscode.workspace.getConfiguration('antigravity-interface');
+			if (e.affectsConfiguration('antigravity-ssh-proxy')) {
+				const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 				const lp = cfg.get<number>('localProxyPort', 7890);
 				const rp = cfg.get<number>('remoteProxyPort', 7890);
 				const enabled = cfg.get<boolean>('enableLocalForwarding', true);
 				await updateSSHConfigFile(rp, lp, enabled);
+				statusManager.updateSSHConfigStatus(enabled, rp);
+				await statusManager.refreshStatus();
 			}
 		})
 	);
 
 	// Commands
 	context.subscriptions.push(
-		vscode.commands.registerCommand('antigravity-interface.enableForwarding', async () => {
-			const cfg = vscode.workspace.getConfiguration('antigravity-interface');
+		vscode.commands.registerCommand('antigravity-ssh-proxy.enableForwarding', async () => {
+			const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 			const lp = cfg.get<number>('localProxyPort', 7890);
 			const rp = cfg.get<number>('remoteProxyPort', 7890);
 			await updateSSHConfigFile(rp, lp, true);
+			statusManager.updateSSHConfigStatus(true, rp);
+			await statusManager.refreshStatus();
 			vscode.window.showInformationMessage('SSH port forwarding enabled');
 		}),
 
-		vscode.commands.registerCommand('antigravity-interface.disableForwarding', async () => {
+		vscode.commands.registerCommand('antigravity-ssh-proxy.disableForwarding', async () => {
 			await updateSSHConfigFile(0, 0, false);
+			statusManager.updateSSHConfigStatus(false);
+			await statusManager.refreshStatus();
 			vscode.window.showInformationMessage('SSH port forwarding disabled');
 		}),
 
-		vscode.commands.registerCommand('antigravity-interface.tunnelStatus', async () => {
+		vscode.commands.registerCommand('antigravity-ssh-proxy.tunnelStatus', async () => {
 			const status = await getSSHConfigStatus();
+			statusManager.updateSSHConfigStatus(status.enabled, status.port);
 			vscode.window.showInformationMessage(
 				status.enabled
 					? `Forwarding configured on port: ${status.port}`
@@ -211,42 +267,59 @@ async function activateLocal(context: vscode.ExtensionContext) {
 }
 
 async function activateRemote(context: vscode.ExtensionContext) {
-	const config = vscode.workspace.getConfiguration('antigravity-interface');
+	const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 	// Remote only cares about remoteProxyHost and remoteProxyPort
 	const remoteHost = config.get<string>('remoteProxyHost', '127.0.0.1');
 	const remotePort = config.get<number>('remoteProxyPort', 7890);
 
 	if (process.platform !== 'linux') {
-		debug(`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`);
+		log(`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`);
 		return;
 	}
 
-	debug(`Remote Proxy: ${remoteHost}:${remotePort}`);
-
-	// Auto-run setup script
 	// Use extensionUri.fsPath for correct remote path resolution
 	const extensionPath = context.extensionUri.fsPath;
-	debug(`Extension path: ${extensionPath}`);
-	debug('Auto-running setup script...');
-	await runSetupScriptSilently(remoteHost, remotePort, extensionPath);
 
-	// Watch config changes
+	// 设置配置变更回调（用于面板中修改配置时触发）
+	statusManager.setConfigChangeCallback(async () => {
+		const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+		const host = cfg.get<string>('remoteProxyHost', '127.0.0.1');
+		const port = cfg.get<number>('remoteProxyPort', 7890);
+		log(`Config changed from panel, re-running setup: ${host}:${port}`);
+		const success = await runSetupScriptSilently(host, port, extensionPath);
+		statusManager.updateLanguageServerStatus(success);
+	});
+
+	log(`Remote Proxy: ${remoteHost}:${remotePort}`);
+
+	// 初始刷新状态
+	await statusManager.refreshStatus();
+
+	// Auto-run setup script
+	log(`Extension path: ${extensionPath}`);
+	log('Auto-running setup script...');
+	const setupSuccess = await runSetupScriptSilently(remoteHost, remotePort, extensionPath);
+	statusManager.updateLanguageServerStatus(setupSuccess);
+
+	// Watch config changes (from VS Code settings)
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
-			if (e.affectsConfiguration('antigravity-interface.remoteProxyHost') ||
-				e.affectsConfiguration('antigravity-interface.remoteProxyPort')) {
-				const cfg = vscode.workspace.getConfiguration('antigravity-interface');
+			if (e.affectsConfiguration('antigravity-ssh-proxy.remoteProxyHost') ||
+				e.affectsConfiguration('antigravity-ssh-proxy.remoteProxyPort')) {
+				const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 				const host = cfg.get<string>('remoteProxyHost', '127.0.0.1');
 				const port = cfg.get<number>('remoteProxyPort', 7890);
-				debug(`Config changed, re-running setup: ${host}:${port}`);
-				await runSetupScriptSilently(host, port, extensionPath);
+				log(`Config changed, re-running setup: ${host}:${port}`);
+				const success = await runSetupScriptSilently(host, port, extensionPath);
+				statusManager.updateLanguageServerStatus(success);
+				await statusManager.refreshStatus();
 			}
 		})
 	);
 
 	// Remote commands
 	context.subscriptions.push(
-		vscode.commands.registerCommand('antigravity-interface.setup', () => {
+		vscode.commands.registerCommand('antigravity-ssh-proxy.setup', () => {
 			const terminal = vscode.window.createTerminal('Antigravity Setup');
 			terminal.show();
 			const script = generateSetupScript(remoteHost, remotePort, extensionPath);
@@ -254,14 +327,16 @@ async function activateRemote(context: vscode.ExtensionContext) {
 			terminal.sendText('bash /tmp/ag_setup.sh');
 		}),
 
-		vscode.commands.registerCommand('antigravity-interface.rollback', () => {
+		vscode.commands.registerCommand('antigravity-ssh-proxy.rollback', () => {
 			const terminal = vscode.window.createTerminal('Antigravity Rollback');
 			terminal.show();
 			terminal.sendText(generateRollbackScript());
+			statusManager.updateLanguageServerStatus(false);
 		}),
 
-		vscode.commands.registerCommand('antigravity-interface.checkProxy', async () => {
+		vscode.commands.registerCommand('antigravity-ssh-proxy.checkProxy', async () => {
 			const ok = await checkPortAvailable(remoteHost, remotePort);
+			await statusManager.refreshStatus();
 			vscode.window.showInformationMessage(ok ? `Proxy OK` : `Proxy NOT reachable`);
 		})
 	);
@@ -269,8 +344,9 @@ async function activateRemote(context: vscode.ExtensionContext) {
 
 /**
  * Run setup script silently in background (idempotent)
+ * @returns true if setup was successful or already configured
  */
-async function runSetupScriptSilently(proxyHost: string, proxyPort: number, extensionPath: string): Promise<void> {
+async function runSetupScriptSilently(proxyHost: string, proxyPort: number, extensionPath: string): Promise<boolean> {
 	const scriptPath = path.join(extensionPath, 'scripts', 'setup-proxy.sh');
 
 	try {
@@ -287,12 +363,13 @@ async function runSetupScriptSilently(proxyHost: string, proxyPort: number, exte
 		const { stdout, stderr } = await execAsync(`bash "${scriptPath}" 2>&1`, { env });
 		const output = stdout || stderr || '';
 
-		debug(`Setup output: ${output}`);
+		log(`Setup output: ${output}`);
 
 		if (output.includes('Already configured')) {
-			debug('Setup: Already configured');
+			log('Setup: Already configured');
+			return true;
 		} else if (output.includes('Setup complete') || output.includes('configured')) {
-			debug('Setup: Completed successfully');
+			log('Setup: Completed successfully');
 			vscode.window.showInformationMessage(
 				'Antigravity Remote Setup updated. Please reload window to apply changes to the language server.',
 				'Reload Window'
@@ -301,22 +378,27 @@ async function runSetupScriptSilently(proxyHost: string, proxyPort: number, exte
 					vscode.commands.executeCommand('workbench.action.reloadWindow');
 				}
 			});
+			return true;
 		}
+		return false;
 	} catch (error: unknown) {
 		const err = error as { message?: string; stdout?: string; stderr?: string };
-		debug(`Setup error: ${err.message || error}`);
-		if (err.stdout) { debug(`stdout: ${err.stdout}`); }
-		if (err.stderr) { debug(`stderr: ${err.stderr}`); }
+		log(`Setup error: ${err.message || error}`);
+		if (err.stdout) { log(`stdout: ${err.stdout}`); }
+		if (err.stderr) { log(`stderr: ${err.stderr}`); }
+		return false;
 	}
 }
 
 export async function deactivate() {
+	if (statusManager) {
+		statusManager.stopAutoRefresh();
+	}
 	if (isRunningLocally()) {
 		try {
 			await updateSSHConfigFile(0, 0, false);
 		} catch (e) {
-			debug(`Cleanup during deactivation failed: ${e}`);
+			log(`Cleanup during deactivation failed: ${e}`);
 		}
 	}
 }
-

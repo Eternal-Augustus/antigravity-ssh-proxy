@@ -1,20 +1,22 @@
 <div align="center">
-<img src="image.png" width="128" />
+<img src="ATP.jpg" width="128" />
 
-# Antigravity Interface (AGI)
+# Antigravity SSH Proxy (ATP)
 
 **English** · [简体中文](README.zh-CN.md)
 
-[![Version](https://img.shields.io/visual-studio-marketplace/v/wang-muhan.antigravity-interface)](https://marketplace.visualstudio.com/items?itemName=wang-muhan.antigravity-interface)
-[![GitHub stars](https://img.shields.io/github/stars/wang-muhan/antigravity-interface)](https://github.com/wang-muhan/antigravity-interface)
-[![GitHub issues](https://img.shields.io/github/issues/wang-muhan/antigravity-interface)](https://github.com/wang-muhan/antigravity-interface/issues)
-[![License](https://img.shields.io/github/license/wang-muhan/antigravity-interface)](https://github.com/wang-muhan/antigravity-interface/blob/main/LICENSE)
+[![Version](https://img.shields.io/visual-studio-marketplace/v/dinobot22.antigravity-ssh-proxy)](https://marketplace.visualstudio.com/items?itemName=dinobot22.antigravity-ssh-proxy)
+[![GitHub stars](https://img.shields.io/github/stars/dinobot22/antigravity-ssh-proxy)](https://github.com/dinobot22/antigravity-ssh-proxy)
+[![GitHub issues](https://img.shields.io/github/issues/dinobot22/antigravity-ssh-proxy)](https://github.com/dinobot22/antigravity-ssh-proxy/issues)
+[![License](https://img.shields.io/github/license/dinobot22/antigravity-ssh-proxy)](https://github.com/dinobot22/antigravity-ssh-proxy/blob/main/LICENSE)
 
 </div>
 
-Proxy interface for Antigravity. Bypass server firewalls by securely routing remote traffic through local or designated gateways.
+Proxy interface for Antigravity. ATP bypasses server firewalls by securely routing remote traffic through local or designated gateways.
 
 > **Note:** This version only supports **Linux remote servers**.
+
+> This project is a fork of [wang-muhan/antigravity-interface](https://github.com/wang-muhan/antigravity-interface). Thanks to the original author for the excellent work!
 
 ---
 
@@ -26,7 +28,7 @@ Proxy interface for Antigravity. Bypass server firewalls by securely routing rem
 
 ## Quick Start
 
-1. Install the **Antigravity Interface** extension on your local Antigravity.
+1. Install the **Antigravity SSH Proxy** extension on your local Antigravity.
 2. Connect to your remote Linux server using Antigravity Remote - SSH.
 3. Install the extension again **on the remote server** (found in the Extensions view under the SSH section).
 4. Execute the **Developer: Reload Window** command (or restart Antigravity) to ensure all services are properly initialized.

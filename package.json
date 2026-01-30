@@ -1,13 +1,13 @@
 {
-  "name": "antigravity-interface",
-  "publisher": "wang-muhan",
-  "displayName": "Antigravity Interface (AGI)",
+  "name": "antigravity-ssh-proxy",
+  "publisher": "dinobot22",
+  "displayName": "Antigravity SSH Proxy (ATP)",
   "description": "Easily fix connectivity issues for the Antigravity remote server. This extension ensures your remote coding tools can bypass server firewalls by securely routing Antigravity's traffic through your local computer or a designated server gateway.",
-  "icon": "image.png",
+  "icon": "ATP.jpg",
   "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wang-muhan/antigravity-interface"
+    "url": "https://github.com/dinobot22/antigravity-ssh-proxy"
   },
   "engines": {
     "vscode": "^1.100.0"
@@ -26,52 +26,64 @@
   "contributes": {
     "commands": [
       {
-        "command": "antigravity-interface.setup",
-        "title": "Antigravity Interface: Setup Remote Environment"
+        "command": "antigravity-ssh-proxy.setup",
+        "title": "Antigravity SSH Proxy: Setup Remote Environment"
       },
       {
-        "command": "antigravity-interface.rollback",
-        "title": "Antigravity Interface: Rollback Remote Environment"
+        "command": "antigravity-ssh-proxy.rollback",
+        "title": "Antigravity SSH Proxy: Rollback Remote Environment"
       },
       {
-        "command": "antigravity-interface.enableForwarding",
-        "title": "Antigravity Interface: Enable Port Forwarding"
+        "command": "antigravity-ssh-proxy.enableForwarding",
+        "title": "Antigravity SSH Proxy: Enable Port Forwarding"
       },
       {
-        "command": "antigravity-interface.disableForwarding",
-        "title": "Antigravity Interface: Disable Port Forwarding"
+        "command": "antigravity-ssh-proxy.disableForwarding",
+        "title": "Antigravity SSH Proxy: Disable Port Forwarding"
       },
       {
-        "command": "antigravity-interface.tunnelStatus",
-        "title": "Antigravity Interface: Show Status"
+        "command": "antigravity-ssh-proxy.tunnelStatus",
+        "title": "Antigravity SSH Proxy: Show Status"
       },
       {
-        "command": "antigravity-interface.checkProxy",
-        "title": "Antigravity Interface: Check Proxy"
+        "command": "antigravity-ssh-proxy.checkProxy",
+        "title": "Antigravity SSH Proxy: Check Proxy"
+      },
+      {
+        "command": "antigravity-ssh-proxy.showOutput",
+        "title": "Antigravity SSH Proxy: Show Output"
+      },
+      {
+        "command": "antigravity-ssh-proxy.showStatusPanel",
+        "title": "Antigravity SSH Proxy: Show Status Panel"
+      },
+      {
+        "command": "antigravity-ssh-proxy.refreshStatus",
+        "title": "Antigravity SSH Proxy: Refresh Status"
       }
     ],
     "configuration": {
-      "title": "Antigravity Interface (AGI)",
+      "title": "Antigravity SSH Proxy",
       "properties": {
-        "antigravity-interface.enableLocalForwarding": {
+        "antigravity-ssh-proxy.enableLocalForwarding": {
           "type": "boolean",
           "default": true,
           "scope": "application",
           "description": "Use local proxy via SSH tunnel. If true, the extension will manage ~/.ssh/config.antigravity and forward the remote port to your local machine."
         },
-        "antigravity-interface.localProxyPort": {
+        "antigravity-ssh-proxy.localProxyPort": {
           "type": "number",
           "default": 7890,
           "scope": "application",
           "description": "Local proxy port on your computer (e.g., 7890 for Clash). Only used when enableLocalForwarding is true."
         },
-        "antigravity-interface.remoteProxyHost": {
+        "antigravity-ssh-proxy.remoteProxyHost": {
           "type": "string",
           "default": "127.0.0.1",
           "scope": "machine-overridable",
           "description": "The host address on the remote server where the proxy is reachable. Use 127.0.0.1 when enableLocalForwarding is true."
         },
-        "antigravity-interface.remoteProxyPort": {
+        "antigravity-ssh-proxy.remoteProxyPort": {
           "type": "number",
           "default": 7890,
           "scope": "machine-overridable",
@@ -95,15 +107,16 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.100.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "typescript-eslint": "^8.48.1",
-    "eslint": "^9.39.1",
+    "@types/vscode": "^1.100.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.1",
+    "eslint": "^9.39.1",
     "npm-run-all": "^4.1.5",
     "typescript": "^5.9.3",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "typescript-eslint": "^8.48.1"
   }
 }
