@@ -179,6 +179,17 @@ export class StatusManager {
                     case 'openTrafficPanel':
                         vscode.commands.executeCommand('antigravity-ssh-proxy.showTrafficPanel');
                         break;
+                    case 'closeRemote':
+                        vscode.window.showInformationMessage(
+                            'After closing: 1) Open a new local window  2) Connect to remote from there',
+                            'Got it'
+                        ).then(() => {
+                            vscode.commands.executeCommand('workbench.action.remote.close');
+                        });
+                        break;
+                    case 'saveLangPreference':
+                        this.context.globalState.update('tipLanguage', message.lang);
+                        break;
                 }
             },
             undefined,
@@ -295,6 +306,7 @@ export class StatusManager {
         const isLocal = status.runningLocation === 'local';
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
         const enableForwarding = config.get<boolean>('enableLocalForwarding', true);
+        const savedLang = this.context.globalState.get<string>('tipLanguage', 'en');
         
         let statusColor: string;
         let statusText: string;
@@ -436,6 +448,9 @@ export class StatusManager {
             width: 36px;
             height: 20px;
         }
+        .input-row .toggle {
+            flex: none;
+        }
         .toggle input {
             opacity: 0;
             width: 0;
@@ -514,6 +529,163 @@ export class StatusManager {
             font-family: 'SF Mono', Monaco, monospace;
             color: var(--vscode-editor-foreground);
         }
+        
+        /* Alert styles */
+        .alert {
+            display: flex;
+            gap: 12px;
+            padding: 14px;
+            border-radius: 6px;
+            border: 1px solid;
+        }
+        .alert-warning {
+            background: #d299221a;
+            border-color: #d29922;
+        }
+        .alert-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .alert-content {
+            flex: 1;
+        }
+        .alert-title {
+            font-weight: 600;
+            font-size: 13px;
+            color: #d29922;
+            margin-bottom: 6px;
+        }
+        .alert-message {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+        .alert-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .alert-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #d29922;
+            color: #000;
+            font-size: 10px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .btn-warning {
+            background: #d29922;
+            color: #000;
+            font-weight: 600;
+        }
+        .btn-warning:hover {
+            background: #e5a826;
+        }
+        
+        /* Tip card styles */
+        .section-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .lang-switch {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .lang-label {
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--vscode-descriptionForeground);
+        }
+        .toggle-small {
+            width: 28px;
+            height: 16px;
+        }
+        .toggle-small .toggle-slider:before {
+            height: 10px;
+            width: 10px;
+            left: 2px;
+            bottom: 2px;
+        }
+        .toggle-small input:checked + .toggle-slider:before {
+            transform: translateX(12px);
+        }
+        .tip-card {
+            display: flex;
+            gap: 10px;
+            padding: 12px;
+            background: var(--vscode-editorWidget-background);
+            border: 1px solid var(--vscode-editorWidget-border);
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--vscode-descriptionForeground);
+        }
+        .tip-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .tip-content strong {
+            color: var(--vscode-editor-foreground);
+        }
+        .tip-content .tip-title {
+            font-weight: 600;
+            color: var(--vscode-editor-foreground);
+            margin-bottom: 8px;
+        }
+        .tip-content .tip-steps {
+            margin: 0;
+            padding-left: 0;
+            list-style: none;
+        }
+        .tip-content .tip-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .tip-content .tip-step:last-child {
+            margin-bottom: 0;
+        }
+        .tip-content .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            font-size: 10px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .tip-content .step-text {
+            flex: 1;
+        }
+        .tip-content .tip-note {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--vscode-editorWidget-border);
+            font-size: 11px;
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -524,6 +696,26 @@ export class StatusManager {
             <span class="env-tag">${isLocal ? 'Local' : 'Remote'}</span>
             <span class="status-badge">${statusText}</span>
         </div>
+        
+        ${!isLocal && !status.remoteProxyReachable ? `
+        <div class="section">
+            <div class="alert alert-warning">
+                <div class="alert-icon">⚠️</div>
+                <div class="alert-content">
+                    <div class="alert-title">SSH Tunnel Not Established</div>
+                    <div class="alert-message">
+                        Proxy is unreachable. This usually happens when you connect directly to remote via Antigravity's recent connections.
+                    </div>
+                    <div class="alert-steps">
+                        <div class="alert-step"><span class="step-num">1</span> Close this remote connection</div>
+                        <div class="alert-step"><span class="step-num">2</span> Open a new local window first</div>
+                        <div class="alert-step"><span class="step-num">3</span> Then connect to remote</div>
+                    </div>
+                    <button class="btn btn-warning" onclick="closeRemote()">Close Remote Connection</button>
+                </div>
+            </div>
+        </div>
+        ` : ''}
         
         <div class="section">
             <div class="section-title">Status</div>
@@ -618,6 +810,26 @@ export class StatusManager {
             ` : ''}
         </div>
         
+        <div class="section">
+            <div class="section-title-row">
+                <span class="section-title">Tips</span>
+                <div class="lang-switch">
+                    <span class="lang-label" id="langLabel">EN</span>
+                    <label class="toggle toggle-small">
+                        <input type="checkbox" id="langToggle" onchange="toggleLang()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="lang-label">CN</span>
+                </div>
+            </div>
+            <div class="tip-card">
+                <div class="tip-icon">💡</div>
+                <div class="tip-content" id="tipContent">
+                    <!-- Content will be set by JavaScript -->
+                </div>
+            </div>
+        </div>
+        
         <div class="footer">
             <span>Auto refresh in <span class="countdown-num" id="countdown">${this.secondsUntilRefresh}</span>s</span>
             <span>Updated ${status.lastUpdated.toLocaleTimeString()}</span>
@@ -652,6 +864,76 @@ export class StatusManager {
         function openTrafficPanel() {
             vscode.postMessage({ command: 'openTrafficPanel' });
         }
+        
+        function closeRemote() {
+            vscode.postMessage({ command: 'closeRemote' });
+        }
+        
+        // Language toggle
+        const tips = {
+            local: {
+                en: \`
+                    <div class="tip-title">🚀 Correct Connection Flow</div>
+                    <ul class="tip-steps">
+                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">Start your <strong>local proxy</strong> (e.g., Clash, V2Ray) on your computer</span></li>
+                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>Open a local Antigravity window first</strong> — this configures SSH tunnel</span></li>
+                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">Connect to remote server from the local window</span></li>
+                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">Reload remote window if prompted</span></li>
+                    </ul>
+                    <div class="tip-note">⚠️ <strong>Do NOT</strong> connect directly via Antigravity's recent connections. Always open a local window first!</div>
+                \`,
+                cn: \`
+                    <div class="tip-title">🚀 正确的连接流程</div>
+                    <ul class="tip-steps">
+                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">在本地电脑启动<strong>代理软件</strong>（如 Clash、V2Ray）</span></li>
+                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>先打开一个本地 Antigravity 窗口</strong> — 这会配置 SSH 隧道</span></li>
+                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">从本地窗口连接到远程服务器</span></li>
+                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">如有提示，重新加载远程窗口</span></li>
+                    </ul>
+                    <div class="tip-note">⚠️ <strong>不要</strong>通过 Antigravity 的"最近连接"直接连接远程！务必先打开本地窗口！</div>
+                \`
+            },
+            remote: {
+                en: \`
+                    <div class="tip-title">🔧 Troubleshooting</div>
+                    <ul class="tip-steps">
+                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">If proxy is <strong>unreachable</strong>, the SSH tunnel was not established</span></li>
+                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>Close this remote connection</strong></span></li>
+                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">Open a <strong>new local window</strong> first (File → New Window)</span></li>
+                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">Then connect to remote from the local window</span></li>
+                    </ul>
+                    <div class="tip-note">💡 This usually happens when you connect directly via Antigravity's recent connections without opening a local window first.</div>
+                \`,
+                cn: \`
+                    <div class="tip-title">🔧 故障排除</div>
+                    <ul class="tip-steps">
+                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">如果代理<strong>不可达</strong>，说明 SSH 隧道未建立</span></li>
+                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>关闭当前远程连接</strong></span></li>
+                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">先打开一个<strong>新的本地窗口</strong>（文件 → 新建窗口）</span></li>
+                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">然后从本地窗口连接到远程服务器</span></li>
+                    </ul>
+                    <div class="tip-note">💡 这通常发生在你通过 Antigravity 的"最近连接"直接连接远程，而没有先打开本地窗口的情况下。</div>
+                \`
+            }
+        };
+        
+        let currentLang = '${savedLang}';
+        
+        function toggleLang() {
+            currentLang = document.getElementById('langToggle').checked ? 'cn' : 'en';
+            updateTipContent();
+            // Save preference
+            vscode.postMessage({ command: 'saveLangPreference', lang: currentLang });
+        }
+        
+        function updateTipContent() {
+            const content = isLocal ? tips.local[currentLang] : tips.remote[currentLang];
+            document.getElementById('tipContent').innerHTML = content;
+        }
+        
+        // Initialize with saved preference
+        document.getElementById('langToggle').checked = currentLang === 'cn';
+        updateTipContent();
         
         window.addEventListener('message', event => {
             const message = event.data;

@@ -440,6 +440,44 @@ async function activateRemote(context: vscode.ExtensionContext) {
 }
 
 /**
+ * Show detailed warning when SSH tunnel is not established
+ * This typically happens when user connects directly to remote via Antigravity's memory feature
+ */
+async function showSSHTunnelNotEstablishedWarning(proxyHost: string, proxyPort: number): Promise<void> {
+	const detailMessage = 
+		`SSH tunnel not established!\n\n` +
+		`The proxy at ${proxyHost}:${proxyPort} is not reachable. This usually happens when you connect directly to the remote server (e.g., via Antigravity's recent connections) without opening a local window first.\n\n` +
+		`To fix this:\n` +
+		`1. Close this remote connection\n` +
+		`2. Open a new local window (File > New Window)\n` +
+		`3. Then connect to the remote server\n\n` +
+		`This ensures the SSH tunnel is properly configured before connecting.`;
+
+	log('Showing SSH tunnel warning dialog');
+	
+	const selection = await vscode.window.showWarningMessage(
+		detailMessage,
+		{ modal: true },
+		'Close Remote & Show Guide',
+		'Run Diagnostics',
+		'Dismiss'
+	);
+
+	if (selection === 'Close Remote & Show Guide') {
+		// Show a quick guide before closing
+		vscode.window.showInformationMessage(
+			'After closing, please: 1) Open a new local window  2) Connect to remote from there',
+			'Got it'
+		).then(() => {
+			// Close remote connection
+			vscode.commands.executeCommand('workbench.action.remote.close');
+		});
+	} else if (selection === 'Run Diagnostics') {
+		vscode.commands.executeCommand('antigravity-ssh-proxy.diagnose');
+	}
+}
+
+/**
  * Show startup status notification with detailed diagnostics in output channel
  */
 async function showStartupStatus(proxyHost: string, proxyPort: number): Promise<void> {
@@ -494,9 +532,14 @@ async function showStartupStatus(proxyHost: string, proxyPort: number): Promise<
 			message = `⚠️ Proxy configured but not active. Reload to enable.`;
 			actions = ['Reload Now', 'Dismiss'];
 		} else if (!proxyReachable) {
-			// Proxy not reachable
-			message = `❌ Proxy not reachable at ${proxyHost}:${proxyPort}. Check local proxy and SSH tunnel.`;
-			actions = ['Run Diagnostics', 'Dismiss'];
+			// Proxy not reachable - likely SSH tunnel not established
+			// This can happen when user directly connects to remote via Antigravity's memory feature
+			log('Proxy not reachable - SSH tunnel may not be established');
+			log('This can happen when connecting directly to remote without opening a local window first');
+			
+			// Show a detailed warning with explanation
+			await showSSHTunnelNotEstablishedWarning(proxyHost, proxyPort);
+			return;
 		} else {
 			message = `⚠️ Proxy status unknown`;
 			actions = ['Run Diagnostics', 'Dismiss'];
@@ -510,6 +553,9 @@ async function showStartupStatus(proxyHost: string, proxyPort: number): Promise<
 				vscode.commands.executeCommand('workbench.action.reloadWindow');
 			} else if (selection === 'Run Diagnostics') {
 				vscode.commands.executeCommand('antigravity-ssh-proxy.diagnose');
+			} else if (selection === 'Close Remote') {
+				// Close remote connection and return to local window
+				vscode.commands.executeCommand('workbench.action.remote.close');
 			}
 		} else {
 			// Just show a brief notification for success
