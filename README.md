@@ -65,3 +65,10 @@ Before uninstalling, run the **Antigravity SSH Proxy: Rollback Remote Environmen
 - SSH access to the remote server.
 - Linux remote server (Currently x86_64 only).
 - A local proxy running on your computer (e.g., Clash, V2Ray).
+
+## Acknowledgements
+
+Special thanks to the following projects:
+
+- [graftcp](https://github.com/hmgle/graftcp): For the core proxy functionality.
+- [antigravity-interface](https://github.com/wang-muhan/antigravity-interface): For the original extension implementation.
