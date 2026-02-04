@@ -40,7 +40,7 @@
 
 ## 快速开始
 
-1. **本地安装**：在 **本地 Antigravity** 环境中安装 "Antigravity SSH Proxy" 插件。
+1. **本地安装**：在 **本地 Antigravity** 环境中搜索并安装 "Antigravity SSH Proxy" 插件（注意：由于当前安装量较少，搜索时可能需要**按名称排序**才能找到）。
 2. **连接远程**：通过 Antigravity Remote - SSH 连接到您的远程 Linux 服务器。
 3. **远程安装**：在 **远程服务器** 环境中再次安装该插件（可以在插件视图的 "SSH: [服务器名]" 分类下点击安装）。
 4. **重新加载**：执行 **Developer: Reload Window** 命令（重新加载窗口）或重启 Antigravity，以确保代理服务正确初始化。

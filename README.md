@@ -40,7 +40,7 @@ This extension must be installed on **BOTH** your local machine and remote serve
 
 ## Quick Start
 
-1. **Install locally**: Install the **Antigravity SSH Proxy** extension on your local Antigravity.
+1. **Install locally**: Install the **Antigravity SSH Proxy** extension on your local Antigravity. (Note: Due to low install count, you may need to **sort by name** in the marketplace to find it).
 2. **Connect**: Connect to your remote Linux server using Antigravity Remote - SSH.
 3. **Install remotely**: Install the extension again **on the remote server** (found in the Extensions view under the SSH section).
 4. **Reload**: Execute the **Developer: Reload Window** command (or restart Antigravity) to ensure all services are properly initialized.
