@@ -353,9 +353,10 @@ async function ensureMgraftcpExecutable(extensionPath: string): Promise<void> {
 
 async function activateRemote(context: vscode.ExtensionContext) {
 	const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
-	// Remote only cares about remoteProxyHost and remoteProxyPort
+	// Remote only cares about remoteProxyHost, remoteProxyPort, and proxyType
 	const remoteHost = config.get<string>('remoteProxyHost', '127.0.0.1');
 	const remotePort = config.get<number>('remoteProxyPort', 7890);
+	const proxyType = config.get<string>('proxyType', 'http');
 
 	if (process.platform !== 'linux') {
 		log(`Skipping setup: unsupported platform '${process.platform}' (only Linux is supported)`);
@@ -373,12 +374,13 @@ async function activateRemote(context: vscode.ExtensionContext) {
 		const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 		const host = cfg.get<string>('remoteProxyHost', '127.0.0.1');
 		const port = cfg.get<number>('remoteProxyPort', 7890);
-		log(`Config changed from panel, re-running setup: ${host}:${port}`);
-		const success = await runSetupScriptSilently(host, port, extensionPath);
+		const type = cfg.get<string>('proxyType', 'http');
+		log(`Config changed from panel, re-running setup: ${host}:${port} (${type})`);
+		const success = await runSetupScriptSilently(host, port, type, extensionPath);
 		statusManager.updateLanguageServerStatus(success);
 	});
 
-	log(`Remote Proxy: ${remoteHost}:${remotePort}`);
+	log(`Remote Proxy: ${remoteHost}:${remotePort} (${proxyType})`);
 
 	// 初始刷新状态
 	await statusManager.refreshStatus();
@@ -386,19 +388,21 @@ async function activateRemote(context: vscode.ExtensionContext) {
 	// Auto-run setup script
 	log(`Extension path: ${extensionPath}`);
 	log('Auto-running setup script...');
-	const setupSuccess = await runSetupScriptSilently(remoteHost, remotePort, extensionPath);
+	const setupSuccess = await runSetupScriptSilently(remoteHost, remotePort, proxyType, extensionPath);
 	statusManager.updateLanguageServerStatus(setupSuccess);
 
 	// Watch config changes (from VS Code settings)
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(async (e: vscode.ConfigurationChangeEvent) => {
 			if (e.affectsConfiguration('antigravity-ssh-proxy.remoteProxyHost') ||
-				e.affectsConfiguration('antigravity-ssh-proxy.remoteProxyPort')) {
+				e.affectsConfiguration('antigravity-ssh-proxy.remoteProxyPort') ||
+				e.affectsConfiguration('antigravity-ssh-proxy.proxyType')) {
 				const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
 				const host = cfg.get<string>('remoteProxyHost', '127.0.0.1');
 				const port = cfg.get<number>('remoteProxyPort', 7890);
-				log(`Config changed, re-running setup: ${host}:${port}`);
-				const success = await runSetupScriptSilently(host, port, extensionPath);
+				const type = cfg.get<string>('proxyType', 'http');
+				log(`Config changed, re-running setup: ${host}:${port} (${type})`);
+				const success = await runSetupScriptSilently(host, port, type, extensionPath);
 				statusManager.updateLanguageServerStatus(success);
 				await statusManager.refreshStatus();
 			}
@@ -408,9 +412,11 @@ async function activateRemote(context: vscode.ExtensionContext) {
 	// Remote commands
 	context.subscriptions.push(
 		vscode.commands.registerCommand('antigravity-ssh-proxy.setup', () => {
+			const cfg = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+			const type = cfg.get<string>('proxyType', 'http');
 			const terminal = vscode.window.createTerminal('Antigravity Setup');
 			terminal.show();
-			const script = generateSetupScript(remoteHost, remotePort, extensionPath);
+			const script = generateSetupScript(remoteHost, remotePort, type, extensionPath);
 			terminal.sendText(`cat > /tmp/ag_setup.sh << 'EOF'\n${script}\nEOF`);
 			terminal.sendText('bash /tmp/ag_setup.sh');
 		}),
@@ -570,7 +576,7 @@ async function showStartupStatus(proxyHost: string, proxyPort: number): Promise<
  * Run setup script silently in background (idempotent)
  * @returns true if setup was successful or already configured
  */
-async function runSetupScriptSilently(proxyHost: string, proxyPort: number, extensionPath: string): Promise<boolean> {
+async function runSetupScriptSilently(proxyHost: string, proxyPort: number, proxyType: string, extensionPath: string): Promise<boolean> {
 	const scriptPath = path.join(extensionPath, 'scripts', 'setup-proxy.sh');
 
 	try {
@@ -581,7 +587,9 @@ async function runSetupScriptSilently(proxyHost: string, proxyPort: number, exte
 		const env = {
 			...process.env,
 			PROXY_HOST: proxyHost,
-			PROXY_PORT: String(proxyPort)
+			PROXY_PORT: String(proxyPort),
+			PROXY_TYPE: proxyType,
+			EXTENSION_PATH: extensionPath  // Current extension's exact path
 		};
 
 		const { stdout, stderr } = await execAsync(`bash "${scriptPath}" 2>&1`, { env });

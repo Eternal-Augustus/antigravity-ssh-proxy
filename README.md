@@ -36,6 +36,7 @@ This extension must be installed on **BOTH** your local machine and remote serve
 - **Automated Proxy Setup**: Deploys `mgraftcp` and configures proxies automatically.
 - **SSH Reverse Tunnel**: Routes traffic through your local proxy via SSH port forwarding.
 - **Process Redirection**: Automatically intercepts and redirects language server processes.
+- **DNS Pollution Prevention**: Integrated FakeDNS to protect against DNS pollution, ensuring stable connections to Google APIs.
 
 ## Quick Start
 

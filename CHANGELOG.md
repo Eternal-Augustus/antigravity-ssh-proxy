@@ -2,6 +2,30 @@
 
 All notable changes to the "Antigravity SSH Proxy" extension will be documented in this file.
 
+## [0.0.7] - 2026-02-04
+
+### Fixed
+
+- **FakeDNS Library Detection**: Fixed `libdnsredir-linux-amd64.so` not being found (was looking for `libdnsredir.so`).
+- **Proxy Fallback Logic**: Fixed AutoSelectMode fallback - now tries HTTP proxy before falling back to direct connection when SOCKS5 fails.
+- **HTTP Proxy Support**: Changed default from SOCKS5 to HTTP proxy for better compatibility with common proxy tools (Clash, etc.).
+
+### Improved
+
+- **Connection Reliability**: More robust proxy connection handling with proper fallback chain (SOCKS5 → HTTP Proxy → Direct).
+
+## [0.0.6] - 2026-02-03
+
+### Added
+
+- **DNS Pollution Prevention**: Integrated FakeDNS and DNS hijacking mechanism to resolve connection issues in DNS-polluted environments.
+- **Enhanced mgraftcp**: Upgraded to `mgraftcp-fakedns` which includes built-in FakeDNS server and `libdnsredir.so` for intercepting DNS calls.
+- **Go Application Support**: Added `GODEBUG=netdns=cgo` to force Go applications (like the Antigravity Language Server) to use the cgo resolver, enabling DNS redirection.
+
+### Improved
+
+- **Connection Stability**: Significantly improved connection success rate for Google APIs by bypassing polluted DNS results.
+
 ## [0.0.2] - 2026-01-30
 
 ### Fixed

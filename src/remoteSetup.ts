@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export function generateSetupScript(proxyHost: string, proxyPort: number, extensionPath: string): string {
+export function generateSetupScript(proxyHost: string, proxyPort: number, proxyType: string, extensionPath: string): string {
     const scriptPath = path.join(extensionPath, 'scripts', 'setup-proxy.sh');
     let script = fs.readFileSync(scriptPath, 'utf-8');
 
