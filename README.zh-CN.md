@@ -12,7 +12,7 @@
 
 </div>
 
-Antigravity 专属代理接口：ATP 通过安全路由绕过服务器防火墙，保障远程开发环境的连通性。
+这是一个专为 **Antigravity** 设计的扩展（[Open VSX 地址](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy)），旨在简化 SSH 远程代理配置。ATP 通过安全路由绕过服务器防火墙，保障远程开发环境的连通性。
 
 > **注意:** **当前版本**仅支持 **Linux 远程服务器 (x86_64)**。ARM 架构暂不支持。
 

@@ -12,7 +12,7 @@
 
 </div>
 
-Proxy interface for Antigravity. ATP bypasses server firewalls by securely routing remote traffic through local or designated gateways.
+This is an extension for **Antigravity** ([Open VSX Link](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy)) designed to simplify SSH remote proxy configuration. ATP bypasses server firewalls by securely routing remote traffic through local or designated gateways.
 
 > **Note:** **Current version** only supports **Linux remote servers (x86_64)**. ARM based servers are **NOT** yet supported.
 
