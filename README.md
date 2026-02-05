@@ -3,7 +3,7 @@
 
 # Antigravity SSH Proxy (ATP)
 
-**English** · [简体中文](README.zh-CN.md)
+**简体中文** · [English](README.en.md)
 
 [![Version](https://img.shields.io/open-vsx/v/dinobot22/antigravity-ssh-proxy)](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy)
 [![GitHub stars](https://img.shields.io/github/stars/dinobot22/antigravity-ssh-proxy)](https://github.com/dinobot22/antigravity-ssh-proxy)
@@ -12,63 +12,65 @@
 
 </div>
 
-This is an extension for **Antigravity** ([Open VSX Link](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy)) designed to simplify SSH remote proxy configuration. ATP bypasses server firewalls by securely routing remote traffic through local or designated gateways.
+这是一个专为 **Antigravity** 设计的扩展（[Open VSX 地址](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy)），旨在简化 SSH 远程代理配置。ATP 通过安全路由绕过服务器防火墙，保障远程开发环境的连通性。
 
-> **Note:** **Current version** only supports **Linux remote servers (x86_64)**. ARM based servers are **NOT** yet supported.
+> ✨ **无需 root 权限** - 所有操作均在用户空间完成，安全便捷！
 
-> This project is a fork of [wang-muhan/antigravity-interface](https://github.com/wang-muhan/antigravity-interface). Thanks to the original author for the excellent work!
+> **注意:** **当前版本**仅支持 **Linux 远程服务器 (x86_64)**。ARM 架构暂不支持。
 
----
-
-## ⚠️ Important: Dual Installation Required
-
-This extension must be installed on **BOTH** your local machine and remote server:
-
-| Location | Role |
-|----------|------|
-| **Local** | Manages SSH port forwarding (`~/.ssh/config.antigravity`) |
-| **Remote** | Configures Language Server proxy wrapper (mgraftcp) |
+> 本项目基于 [wang-muhan/antigravity-interface](https://github.com/wang-muhan/antigravity-interface) 进行二次开发，感谢原作者的出色工作！
 
 ---
 
-## Features
+## ⚠️ 重要：需要双端安装
 
-- **Automated Proxy Setup**: Deploys `mgraftcp` and configures proxies automatically.
-- **SSH Reverse Tunnel**: Routes traffic through your local proxy via SSH port forwarding.
-- **Process Redirection**: Automatically intercepts and redirects language server processes.
-- **DNS Pollution Prevention**: Integrated FakeDNS to protect against DNS pollution, ensuring stable connections to Google APIs.
+此插件必须同时安装在 **本地** 和 **远程服务器** 上：
 
-## Quick Start
+| 位置 | 职责 |
+|------|------|
+| **本地** | 管理 SSH 端口转发配置 (`~/.ssh/config.antigravity`) |
+| **远程** | 配置 Language Server 代理包装器 (mgraftcp) |
 
-1. **Install locally**: Install the **Antigravity SSH Proxy** extension on your local Antigravity. (Note: Due to low install count, you may need to **sort by name** in the marketplace to find it).
-2. **Connect**: Connect to your remote Linux server using Antigravity Remote - SSH.
-3. **Install remotely**: Install the extension again **on the remote server** (found in the Extensions view under the SSH section).
-4. **Reload**: Execute the **Developer: Reload Window** command (or restart Antigravity) to ensure all services are properly initialized.
-5. **Configure**: Set your `localProxyPort` in settings (e.g., 7890) to match your local proxy service.
+---
 
-## Extension Settings
+## 功能特性
 
-| Setting | Description |
-|---------|-------------|
-| `enableLocalForwarding` | Enable SSH reverse tunnel forwarding. |
-| `localProxyPort` | Local proxy port on your computer. |
-| `remoteProxyHost` | Proxy host address on the remote server. |
-| `remoteProxyPort` | Proxy port on the remote server. |
-| `showStatusOnStartup` | Show status notification when connecting to remote server. |
+- **自动代理配置**：自动部署 `mgraftcp` 并配置代理。
+- **SSH 反向隧道**：通过 SSH 端口转发将流量路由到本地代理。
+- **进程重定向**：自动拦截并重定向语言服务器进程。
+- **DNS 污染防护**：集成 FakeDNS 功能，有效解决 DNS 污染导致的连接问题，确保稳定连接。
 
-## Uninstall
+## 快速开始
 
-Before uninstalling, run the **Antigravity SSH Proxy: Rollback Remote Environment** command to restore the original Language Server.
+1. **本地安装**：在 **本地 Antigravity** 环境中搜索并安装 "Antigravity SSH Proxy" 插件（注意：由于当前安装量较少，搜索时可能需要**按名称排序**才能找到）。
+2. **连接远程**：通过 Antigravity Remote - SSH 连接到您的远程 Linux 服务器。
+3. **远程安装**：在 **远程服务器** 环境中再次安装该插件（可以在插件视图的 "SSH: [服务器名]" 分类下点击安装）。
+4. **重新加载**：执行 **Developer: Reload Window** 命令（重新加载窗口）或重启 Antigravity，以确保代理服务正确初始化。
+5. **配置端口**：在设置中配置 `localProxyPort`（例如 7890）以匹配您的本地代理软件。
 
-## Requirements
+## 扩展设置
 
-- SSH access to the remote server.
-- Linux remote server (Currently x86_64 only).
-- A local proxy running on your computer (e.g., Clash, V2Ray).
+| 设置 | 说明 |
+|------|------|
+| `enableLocalForwarding` | 启用 SSH 反向隧道转发。 |
+| `localProxyPort` | 本地计算机上的代理端口。 |
+| `remoteProxyHost` | 远程服务器上的代理主机地址。 |
+| `remoteProxyPort` | 远程服务器上的代理端口。 |
+| `showStatusOnStartup` | 连接远程服务器时显示状态通知。 |
 
-## Acknowledgements
+## 卸载说明
 
-Special thanks to the following projects:
+卸载前，请先执行 **Antigravity SSH Proxy: Rollback Remote Environment** 命令以恢复原始的 Language Server。
 
-- [graftcp](https://github.com/hmgle/graftcp): For the core proxy functionality.
-- [antigravity-interface](https://github.com/wang-muhan/antigravity-interface): For the original extension implementation.
+## 环境要求
+
+- 远程服务器的 SSH 访问权限。
+- Linux 远程服务器（当前仅支持 x86_64 架构）。
+- 本地运行的代理软件（如 Clash、V2Ray）。
+
+## 致谢
+
+特别感谢以下项目：
+
+- [graftcp](https://github.com/hmgle/graftcp): 提供了核心代理功能。
+- [antigravity-interface](https://github.com/wang-muhan/antigravity-interface): 提供了最初的插件实现。
