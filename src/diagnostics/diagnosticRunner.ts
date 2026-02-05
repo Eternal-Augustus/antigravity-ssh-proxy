@@ -14,6 +14,17 @@ export interface DiagnosticCheck {
     status: 'pending' | 'running' | 'success' | 'warning' | 'error';
     message?: string;
     suggestion?: string;
+    // For external connectivity check - protocol test results
+    protocolResults?: ProtocolTestResult[];
+    currentProtocol?: string;
+}
+
+export interface ProtocolTestResult {
+    protocol: 'http' | 'socks5';
+    success: boolean;
+    httpCode?: string;
+    error?: string;
+    isCurrent: boolean;
 }
 
 export interface DiagnosticReport {
@@ -163,18 +174,21 @@ async function checkRemotePortForward(remoteProxyHost: string, remoteProxyPort: 
 }
 
 /**
- * Check mgraftcp availability
+ * Check mgraftcp-fakedns availability
+ * Uses the exact extension path for precise detection
  */
-async function checkMgraftcp(): Promise<DiagnosticCheck> {
+async function checkMgraftcp(extensionPath?: string): Promise<DiagnosticCheck> {
     const check: DiagnosticCheck = {
         id: 'mgraftcp',
-        name: 'mgraftcp Binary',
+        name: 'mgraftcp-fakedns Binary',
         status: 'running'
     };
 
     try {
         const arch = process.arch === 'x64' ? 'amd64' : 'arm64';
-        const binaryName = `mgraftcp-linux-${arch}`;
+        // Use the correct binary name: mgraftcp-fakedns (not mgraftcp)
+        const binaryName = `mgraftcp-fakedns-linux-${arch}`;
+        const libName = `libdnsredir-linux-${arch}.so`;
         const homeDir = os.homedir();
         
         // Check if we're in a misconfigured environment (Windows path on Linux check)
@@ -185,19 +199,50 @@ async function checkMgraftcp(): Promise<DiagnosticCheck> {
             return check;
         }
         
-        // Search for mgraftcp in extension directories
-        const searchPattern = `${homeDir}/.antigravity-server/extensions/*antigravity-ssh-proxy*/resources/bin/${binaryName}`;
-        const { stdout } = await execAsync(`ls ${searchPattern} 2>/dev/null | head -1`);
-        const binaryPath = stdout.trim();
+        let binaryPath = '';
+        let libPath = '';
+        
+        // Method 1: Use exact extension path if provided (preferred)
+        if (extensionPath) {
+            const exactBinaryPath = path.join(extensionPath, 'resources', 'bin', binaryName);
+            const exactLibPath = path.join(extensionPath, 'resources', 'bin', libName);
+            try {
+                await fs.access(exactBinaryPath, fs.constants.X_OK);
+                binaryPath = exactBinaryPath;
+                // Check lib file (optional but recommended)
+                try {
+                    await fs.access(exactLibPath, fs.constants.R_OK);
+                    libPath = exactLibPath;
+                } catch {
+                    // Lib file is optional
+                }
+            } catch {
+                // Binary not found or not executable at exact path, fall through to search
+            }
+        }
+        
+        // Method 2: Fallback - search in all versions (sorted by version, newest first)
+        if (!binaryPath) {
+            const searchPattern = `${homeDir}/.antigravity-server/extensions/*antigravity-ssh-proxy*/resources/bin/${binaryName}`;
+            const { stdout } = await execAsync(`ls ${searchPattern} 2>/dev/null | sort -V -r | head -1`);
+            binaryPath = stdout.trim();
+            
+            if (binaryPath) {
+                // Check if executable
+                await fs.access(binaryPath, fs.constants.X_OK);
+            }
+        }
 
         if (binaryPath) {
-            // Check if executable
-            await fs.access(binaryPath, fs.constants.X_OK);
             check.status = 'success';
-            check.message = `mgraftcp found at ${binaryPath}`;
+            if (libPath) {
+                check.message = `mgraftcp-fakedns found at ${binaryPath} (with libdnsredir)`;
+            } else {
+                check.message = `mgraftcp-fakedns found at ${binaryPath}`;
+            }
         } else {
             check.status = 'error';
-            check.message = 'mgraftcp binary not found';
+            check.message = 'mgraftcp-fakedns binary not found';
             check.suggestion = 'Please install "Antigravity SSH Proxy" extension on the remote server: Open Extensions sidebar (Ctrl+Shift+X) → Search "Antigravity SSH Proxy" → Click "Install in SSH: <host>" button.';
         }
     } catch (error) {
@@ -209,7 +254,7 @@ async function checkMgraftcp(): Promise<DiagnosticCheck> {
             check.suggestion = 'Please install "Antigravity SSH Proxy" extension on the remote server: Open Extensions sidebar (Ctrl+Shift+X) → Search "Antigravity SSH Proxy" → Click "Install in SSH: <host>" button.';
         } else {
             check.status = 'error';
-            check.message = `Error checking mgraftcp: ${error}`;
+            check.message = `Error checking mgraftcp-fakedns: ${error}`;
             check.suggestion = 'Please install "Antigravity SSH Proxy" extension on the remote server: Open Extensions sidebar (Ctrl+Shift+X) → Search "Antigravity SSH Proxy" → Click "Install in SSH: <host>" button.';
         }
     }
@@ -220,7 +265,7 @@ async function checkMgraftcp(): Promise<DiagnosticCheck> {
 /**
  * Check language server wrapper
  */
-async function checkLanguageServerWrapper(): Promise<DiagnosticCheck> {
+async function checkLanguageServerWrapper(extensionPath?: string): Promise<DiagnosticCheck> {
     const check: DiagnosticCheck = {
         id: 'ls-wrapper',
         name: 'Language Server Wrapper',
@@ -254,7 +299,36 @@ async function checkLanguageServerWrapper(): Promise<DiagnosticCheck> {
         const content = await fs.readFile(targetPath, 'utf-8');
         if (content.startsWith('#!/bin/bash') && content.includes('mgraftcp')) {
             check.status = 'success';
-            check.message = 'Language server wrapper is configured';
+            
+            // Extract wrapper version
+            let wrapperVersion = 'unknown';
+            const versionMatch = content.match(/WRAPPER_VERSION="([^"]+)"/);
+            if (versionMatch) {
+                wrapperVersion = versionMatch[1];
+            }
+
+            // Get extension version
+            let extensionVersion = 'unknown';
+            if (extensionPath) {
+                try {
+                    const packageJsonPath = path.join(extensionPath, 'package.json');
+                    const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
+                    const packageJson = JSON.parse(packageJsonContent);
+                    extensionVersion = packageJson.version || 'unknown';
+                } catch {
+                    // Ignore error
+                }
+            }
+
+            check.message = `Language server wrapper is configured (Wrapper v${wrapperVersion}, Extension v${extensionVersion})`;
+            
+            // Warn if versions mismatch
+            if (extensionVersion !== 'unknown' && wrapperVersion !== 'unknown' && 
+                wrapperVersion !== extensionVersion && extensionVersion !== '__EXTENSION_VERSION_PLACEHOLDER__') {
+                check.status = 'warning';
+                check.message += ' - Version mismatch, update recommended';
+                check.suggestion = 'Run "Setup Remote Environment" command to update the wrapper.';
+            }
         } else {
             check.status = 'warning';
             check.message = 'Language server is not wrapped with mgraftcp';
@@ -279,56 +353,86 @@ async function checkLanguageServerWrapper(): Promise<DiagnosticCheck> {
 
 /**
  * Check external connectivity through proxy
- * Tries multiple proxy protocols: socks5h (DNS via proxy), http, socks5
+ * Tests both HTTP and SOCKS5 protocols and reports availability of each
  */
-async function checkExternalConnectivity(remoteProxyHost: string, remoteProxyPort: number): Promise<DiagnosticCheck> {
+async function checkExternalConnectivity(remoteProxyHost: string, remoteProxyPort: number, currentProxyType: string): Promise<DiagnosticCheck> {
     const check: DiagnosticCheck = {
         id: 'external-connectivity',
         name: 'External Connectivity',
-        status: 'running'
+        status: 'running',
+        currentProtocol: currentProxyType
     };
 
-    // Try multiple proxy protocols - some environments may only support certain types
-    // socks5h: SOCKS5 with DNS resolution through proxy (best for restricted networks)
-    // http: HTTP proxy (common for Clash/V2Ray mixed ports)
-    // socks5: SOCKS5 with local DNS resolution
-    const proxyProtocols = ['socks5h', 'http', 'socks5'];
+    // Test both protocols
+    const protocols: Array<'http' | 'socks5'> = ['http', 'socks5'];
+    const results: ProtocolTestResult[] = [];
     
-    for (const protocol of proxyProtocols) {
-    try {
-        const { stdout } = await execAsync(
+    for (const protocol of protocols) {
+        const result: ProtocolTestResult = {
+            protocol,
+            success: false,
+            isCurrent: protocol === currentProxyType
+        };
+        
+        try {
+            const { stdout } = await execAsync(
                 `curl -x ${protocol}://${remoteProxyHost}:${remoteProxyPort} https://www.google.com -o /dev/null -s -w "%{http_code}" --connect-timeout 10`,
-            { timeout: 15000 }
-        );
-        const httpCode = stdout.trim();
-
-        if (httpCode === '200' || httpCode === '301' || httpCode === '302') {
-            check.status = 'success';
-                check.message = `External connectivity OK via ${protocol} (HTTP ${httpCode})`;
-                return check;
+                { timeout: 15000 }
+            );
+            const httpCode = stdout.trim();
+            
+            if (httpCode === '200' || httpCode === '301' || httpCode === '302') {
+                result.success = true;
+                result.httpCode = httpCode;
+            } else {
+                result.error = `HTTP ${httpCode}`;
             }
-        } catch {
-            // Try next protocol
-            continue;
+        } catch (error) {
+            result.error = 'Connection failed';
         }
+        
+        results.push(result);
     }
-
-    // All protocols failed
-            check.status = 'error';
-    check.message = 'Cannot connect to external network via any proxy protocol';
-    check.suggestion = 'Check if the proxy is properly forwarding traffic. Verify your local proxy has internet access and supports SOCKS5 or HTTP proxy.';
+    
+    check.protocolResults = results;
+    
+    // Determine status based on current protocol and available protocols
+    const currentResult = results.find(r => r.isCurrent);
+    const anySuccess = results.some(r => r.success);
+    const currentSuccess = currentResult?.success ?? false;
+    
+    if (currentSuccess) {
+        // Current protocol works
+        check.status = 'success';
+        const availableCount = results.filter(r => r.success).length;
+        check.message = `Current protocol (${currentProxyType.toUpperCase()}) is working. ${availableCount}/${protocols.length} protocols available.`;
+    } else if (anySuccess) {
+        // Current protocol doesn't work, but others do
+        check.status = 'warning';
+        const workingProtocols = results.filter(r => r.success).map(r => r.protocol.toUpperCase()).join(', ');
+        check.message = `Current protocol (${currentProxyType.toUpperCase()}) is not working.`;
+        check.suggestion = `Consider switching to ${workingProtocols} which is available.`;
+    } else {
+        // No protocols work
+        check.status = 'error';
+        check.message = 'No proxy protocol is working.';
+        check.suggestion = 'Check if the proxy is properly forwarding traffic. Verify your local proxy has internet access.';
+    }
 
     return check;
 }
 
 /**
  * Run all diagnostic checks
+ * @param onProgress - Optional callback for progress updates
+ * @param extensionPath - Optional path to the current extension for precise binary detection
  */
-export async function runDiagnostics(onProgress?: ProgressCallback): Promise<DiagnosticReport> {
+export async function runDiagnostics(onProgress?: ProgressCallback, extensionPath?: string): Promise<DiagnosticReport> {
     const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
     const localProxyPort = config.get<number>('localProxyPort', 7890);
     const remoteProxyPort = config.get<number>('remoteProxyPort', 7890);
     const remoteProxyHost = config.get<string>('remoteProxyHost', '127.0.0.1');
+    const proxyType = config.get<string>('proxyType', 'http');
     const isLocal = isRunningLocally();
 
     // Initialize all checks as pending
@@ -336,7 +440,7 @@ export async function runDiagnostics(onProgress?: ProgressCallback): Promise<Dia
         { id: 'local-proxy', name: 'Local Proxy Service', status: 'pending' },
         { id: 'ssh-config', name: 'SSH Configuration', status: 'pending' },
         { id: 'remote-forward', name: 'Remote Port Forwarding', status: 'pending' },
-        { id: 'mgraftcp', name: 'mgraftcp Binary', status: 'pending' },
+        { id: 'mgraftcp', name: 'mgraftcp-fakedns Binary', status: 'pending' },
         { id: 'ls-wrapper', name: 'Language Server Wrapper', status: 'pending' },
         { id: 'external-connectivity', name: 'External Connectivity', status: 'pending' }
     ];
@@ -378,15 +482,15 @@ export async function runDiagnostics(onProgress?: ProgressCallback): Promise<Dia
 
         checks[3].status = 'running';
         onProgress?.(checks);
-        updateCheck(3, await checkMgraftcp());
+        updateCheck(3, await checkMgraftcp(extensionPath));
 
         checks[4].status = 'running';
         onProgress?.(checks);
-        updateCheck(4, await checkLanguageServerWrapper());
+        updateCheck(4, await checkLanguageServerWrapper(extensionPath));
 
         checks[5].status = 'running';
         onProgress?.(checks);
-        updateCheck(5, await checkExternalConnectivity(remoteProxyHost, remoteProxyPort));
+        updateCheck(5, await checkExternalConnectivity(remoteProxyHost, remoteProxyPort, proxyType));
     }
 
     // Determine overall status
@@ -427,6 +531,20 @@ export function generateReportText(report: DiagnosticReport): string {
                      check.status === 'warning' ? '⚠' : 
                      check.status === 'error' ? '✗' : '○';
         lines.push(`[${icon}] ${check.name}: ${check.message || check.status}`);
+        
+        // Add protocol test results for external-connectivity check
+        if (check.protocolResults && check.protocolResults.length > 0) {
+            for (let i = 0; i < check.protocolResults.length; i++) {
+                const result = check.protocolResults[i];
+                const isLast = i === check.protocolResults.length - 1;
+                const prefix = isLast ? '└──' : '├──';
+                const statusIcon = result.success ? '✓' : '✗';
+                const statusText = result.success ? 'Available' : 'Not working';
+                const currentLabel = result.isCurrent ? ' ← Current' : '';
+                lines.push(`    ${prefix} ${result.protocol.toUpperCase()}: ${statusIcon} ${statusText}${currentLabel}`);
+            }
+        }
+        
         if (check.suggestion) {
             lines.push(`    Suggestion: ${check.suggestion}`);
         }

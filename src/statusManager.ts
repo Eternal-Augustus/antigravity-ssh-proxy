@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as net from 'net';
-import { runDiagnostics, DiagnosticCheck, DiagnosticReport, generateReportText } from './diagnostics/diagnosticRunner';
+import { runDiagnostics, DiagnosticCheck, DiagnosticReport, generateReportText, ProtocolTestResult } from './diagnostics/diagnosticRunner';
 import { TrafficCollector, TrafficStats } from './traffic/trafficCollector';
 
 export interface ProxyStatus {
@@ -45,6 +45,9 @@ const i18n = {
         remotePort: '远程端口',
         proxyHost: '代理地址',
         proxyPort: '代理端口',
+        proxyType: '代理类型',
+        proxyTypeHttp: 'HTTP (推荐)',
+        proxyTypeSocks5: 'SOCKS5',
         diagnostics: '诊断检查',
         runCheck: '运行检查',
         copyReport: '复制报告',
@@ -52,7 +55,7 @@ const i18n = {
         localProxyService: '本地代理服务',
         sshConfig: 'SSH 配置',
         remoteForward: '远程端口转发',
-        mgraftcp: 'mgraftcp',
+        mgraftcp: 'mgraftcp-fakedns',
         lsWrapper: '语言服务包装',
         externalConn: '外部连接',
         localOnly: '仅本地可用',
@@ -63,6 +66,7 @@ const i18n = {
         totalRequests: '总请求',
         tips: '使用提示',
         refresh: '刷新',
+        rollback: '回滚',
         save: '保存',
         autoRefresh: '自动刷新',
         updated: '已更新',
@@ -91,6 +95,8 @@ const i18n = {
         skipped: '已跳过',
         reportCopied: '报告已复制到剪贴板',
         configSaved: '配置已保存',
+        rollbackTitle: '回滚操作',
+        rollbackDesc: '此功能用于恢复之前的语言服务配置。仅当您遇到插件升级导致的严重问题或在卸载插件前使用。',
     },
     en: {
         title: 'Antigravity SSH Proxy(ATP)',
@@ -115,6 +121,9 @@ const i18n = {
         remotePort: 'Remote Port',
         proxyHost: 'Proxy Host',
         proxyPort: 'Proxy Port',
+        proxyType: 'Proxy Type',
+        proxyTypeHttp: 'HTTP (Recommended)',
+        proxyTypeSocks5: 'SOCKS5',
         diagnostics: 'Diagnostics',
         runCheck: 'Run Check',
         copyReport: 'Copy Report',
@@ -122,7 +131,7 @@ const i18n = {
         localProxyService: 'Local Proxy Service',
         sshConfig: 'SSH Configuration',
         remoteForward: 'Remote Port Forwarding',
-        mgraftcp: 'mgraftcp',
+        mgraftcp: 'mgraftcp-fakedns',
         lsWrapper: 'Language Server Wrapper',
         externalConn: 'External Connectivity',
         localOnly: 'Local only',
@@ -133,6 +142,7 @@ const i18n = {
         totalRequests: 'Total Requests',
         tips: 'Tips',
         refresh: 'Refresh',
+        rollback: 'Rollback',
         save: 'Save',
         autoRefresh: 'Auto refresh',
         updated: 'Updated',
@@ -161,6 +171,8 @@ const i18n = {
         skipped: 'Skipped',
         reportCopied: 'Report copied to clipboard',
         configSaved: 'Configuration saved',
+        rollbackTitle: 'Rollback Operation',
+        rollbackDesc: 'Restores previous Language Server configuration. Use only if plugin update causes critical issues or before uninstalling.',
     }
 };
 
@@ -363,6 +375,9 @@ export class StatusManager {
                             vscode.commands.executeCommand('workbench.action.remote.close');
                         });
                         break;
+                    case 'rollback':
+                        vscode.commands.executeCommand('antigravity-ssh-proxy.rollback');
+                        break;
                 }
             },
             undefined,
@@ -397,7 +412,7 @@ export class StatusManager {
                         checks: checks
                     });
                 }
-            });
+            }, this.context.extensionUri.fsPath);
         } finally {
             this.isRunningDiagnostics = false;
             this.updatePanelIfOpen();
@@ -424,8 +439,10 @@ export class StatusManager {
         remoteProxyPort?: number;
         remoteProxyHost?: string;
         enableLocalForwarding?: boolean;
+        proxyType?: string;
     }): Promise<void> {
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+        const oldProxyType = config.get<string>('proxyType', 'http');
         const t = i18n[this.currentLang];
         
         try {
@@ -441,6 +458,9 @@ export class StatusManager {
             if (newConfig.enableLocalForwarding !== undefined) {
                 await config.update('enableLocalForwarding', newConfig.enableLocalForwarding, vscode.ConfigurationTarget.Global);
             }
+            if (newConfig.proxyType !== undefined) {
+                await config.update('proxyType', newConfig.proxyType, vscode.ConfigurationTarget.Global);
+            }
 
             // Trigger config change callback
             if (this.onConfigChange) {
@@ -448,7 +468,23 @@ export class StatusManager {
             }
 
             await this.refreshStatus();
-            vscode.window.showInformationMessage(t.configSaved);
+            
+            // If proxyType changed, prompt for reload
+            if (newConfig.proxyType !== undefined && newConfig.proxyType !== oldProxyType) {
+                const reloadMsg = this.currentLang === 'zh' 
+                    ? `代理类型已更改为 ${newConfig.proxyType.toUpperCase()}。请重新加载窗口以应用更改。`
+                    : `Proxy type changed to ${newConfig.proxyType.toUpperCase()}. Please reload window to apply changes.`;
+                const reloadNow = this.currentLang === 'zh' ? '立即重载' : 'Reload Now';
+                const later = this.currentLang === 'zh' ? '稍后' : 'Later';
+                
+                vscode.window.showInformationMessage(reloadMsg, reloadNow, later).then(selection => {
+                    if (selection === reloadNow) {
+                        vscode.commands.executeCommand('workbench.action.reloadWindow');
+                    }
+                });
+            } else {
+                vscode.window.showInformationMessage(t.configSaved);
+            }
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to save config: ${error}`);
         }
@@ -534,6 +570,7 @@ export class StatusManager {
         const isLocal = status.runningLocation === 'local';
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
         const enableForwarding = config.get<boolean>('enableLocalForwarding', true);
+        const proxyType = config.get<string>('proxyType', 'http');
         const t = i18n[this.currentLang];
         const trafficStats = this.trafficCollector.getStats();
         
@@ -802,6 +839,23 @@ export class StatusManager {
             border-color: var(--accent);
         }
         
+        .input-row select {
+            width: 100px;
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        
+        .input-row select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
         /* Toggle Switch */
         .toggle {
             position: relative;
@@ -991,6 +1045,40 @@ export class StatusManager {
             font-style: italic;
         }
         
+        /* Protocol List for External Connectivity */
+        .protocol-list {
+            margin-bottom: 6px;
+        }
+        
+        .protocol-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            line-height: 1.8;
+        }
+        
+        .protocol-prefix {
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        
+        .protocol-name {
+            color: var(--text-secondary);
+            min-width: 55px;
+        }
+        
+        .protocol-status {
+            font-weight: 600;
+        }
+        
+        .protocol-status.success { color: var(--success); }
+        .protocol-status.error { color: var(--error); }
+        
+        .protocol-current {
+            color: var(--text-muted);
+            font-style: italic;
+        }
         /* Traffic Monitor */
         .traffic-stat {
             padding: 8px 0;
@@ -1242,6 +1330,13 @@ export class StatusManager {
                     <label>${t.proxyPort}</label>
                     <input type="number" id="remoteProxyPort" value="${status.remoteProxyPort}" min="1" max="65535">
                 </div>
+                <div class="input-row">
+                    <label>${t.proxyType}</label>
+                    <select id="proxyType" onchange="saveConfig()">
+                        <option value="http" ${proxyType === 'http' ? 'selected' : ''}>${t.proxyTypeHttp}</option>
+                        <option value="socks5" ${proxyType === 'socks5' ? 'selected' : ''}>${t.proxyTypeSocks5}</option>
+                    </select>
+                </div>
                 `}
             </div>
         </div>
@@ -1291,6 +1386,10 @@ export class StatusManager {
                             <li class="tip-step"><span class="step-num">4</span><span>${t.tipStep4Remote}</span></li>
                         </ul>
                         <div class="tip-note">${t.tipNoteRemote}</div>
+                        <div style="margin-top: 12px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                            <div class="tip-title" style="color: var(--error); margin-bottom: 4px;">${t.rollbackTitle}</div>
+                            <div style="font-size: 10px; color: var(--text-muted);">${t.rollbackDesc}</div>
+                        </div>
                         `}
                     </div>
                 </div>
@@ -1302,6 +1401,7 @@ export class StatusManager {
         
         <!-- Actions -->
         <div class="actions">
+            <button class="btn" onclick="rollback()">${t.rollback}</button>
             <button class="btn" onclick="refresh()">${t.refresh}</button>
             <button class="btn btn-primary" onclick="saveConfig()">${t.save}</button>
         </div>
@@ -1321,6 +1421,10 @@ export class StatusManager {
             vscode.postMessage({ command: 'refresh' });
         }
         
+        function rollback() {
+            vscode.postMessage({ command: 'rollback' });
+        }
+        
         function saveConfig() {
             const config = {};
             if (isLocal) {
@@ -1330,6 +1434,7 @@ export class StatusManager {
             } else {
                 config.remoteProxyHost = document.getElementById('remoteProxyHost').value;
                 config.remoteProxyPort = parseInt(document.getElementById('remoteProxyPort').value);
+                config.proxyType = document.getElementById('proxyType').value;
             }
             vscode.postMessage({ command: 'saveConfig', config });
         }
@@ -1406,7 +1511,33 @@ export class StatusManager {
             // Get message and suggestion from the check
             const message = (check as DiagnosticCheck).message;
             const suggestion = (check as DiagnosticCheck).suggestion;
-            const hasDetails = !isDisabled && (message || suggestion);
+            const protocolResults = (check as DiagnosticCheck).protocolResults;
+            const hasDetails = !isDisabled && (message || suggestion || protocolResults);
+            
+            // Generate protocol list HTML for external-connectivity check
+            let protocolListHtml = '';
+            if (check.id === 'external-connectivity' && protocolResults && protocolResults.length > 0) {
+                protocolListHtml = `
+                    <div class="protocol-list">
+                        ${protocolResults.map((result: ProtocolTestResult, index: number) => {
+                            const isLast = index === protocolResults.length - 1;
+                            const prefix = isLast ? '└──' : '├──';
+                            const statusIcon = result.success ? '✓' : '✗';
+                            const statusClass = result.success ? 'success' : 'error';
+                            const statusText = result.success ? 'Available' : 'Not working';
+                            const currentLabel = result.isCurrent ? ' ← Current' : '';
+                            return `
+                                <div class="protocol-item">
+                                    <span class="protocol-prefix">${prefix}</span>
+                                    <span class="protocol-name">${result.protocol.toUpperCase()}:</span>
+                                    <span class="protocol-status ${statusClass}">${statusIcon} ${statusText}</span>
+                                    ${result.isCurrent ? `<span class="protocol-current">${currentLabel}</span>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
             
             return `
                 <div class="diag-item-wrapper">
@@ -1417,8 +1548,9 @@ export class StatusManager {
                     </div>
                     ${hasDetails ? `
                     <div class="diag-details">
-                        ${message ? `<div class="diag-message">${message}</div>` : ''}
-                        ${suggestion ? `<div class="diag-suggestion">${suggestion}</div>` : ''}
+                        ${protocolListHtml}
+                        ${message && !protocolResults ? `<div class="diag-message">${message}</div>` : ''}
+                        ${suggestion ? `<div class="diag-suggestion">💡 ${suggestion}</div>` : ''}
                     </div>
                     ` : ''}
                 </div>

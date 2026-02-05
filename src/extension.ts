@@ -330,11 +330,11 @@ async function ensureMgraftcpExecutable(extensionPath: string): Promise<void> {
 	switch (arch) {
 		case 'x64':
 		case 'amd64':
-			binaryName = 'mgraftcp-linux-amd64';
+			binaryName = 'mgraftcp-fakedns-linux-amd64';
 			break;
 		case 'arm64':
 		case 'aarch64':
-			binaryName = 'mgraftcp-linux-arm64';
+			binaryName = 'mgraftcp-fakedns-linux-arm64';
 			break;
 		default:
 			log(`Unsupported architecture: ${arch}`);
@@ -509,17 +509,54 @@ async function showStartupStatus(proxyHost: string, proxyPort: number): Promise<
 
 		// Test 3: External connectivity (only if port is reachable)
 		if (proxyReachable) {
-			log(`[Test 3] Testing external connectivity...`);
-			log(`  Command: curl -x socks5h://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`);
+			const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+			const currentProxyType = config.get<string>('proxyType', 'http');
+			
+			// Test HTTP proxy
+			log(`[Test 3] Testing HTTP proxy connectivity...`);
+			const httpCmd = `curl -x http://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`;
+			log(`  Command: ${httpCmd}`);
+			let httpOk = false;
 			try {
-				const { stdout } = await execAsync(
-					`curl -x socks5h://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`,
-					{ timeout: 15000 }
-				);
+				const { stdout } = await execAsync(httpCmd, { timeout: 15000 });
 				const httpCode = stdout.trim();
-				log(`  Result: HTTP ${httpCode} ${httpCode === '200' || httpCode === '301' || httpCode === '302' ? '✓ OK' : '✗ Failed'}`);
+				httpOk = httpCode === '200' || httpCode === '301' || httpCode === '302';
+				const marker = currentProxyType === 'http' ? ' ← Current' : '';
+				log(`  Result: HTTP ${httpCode} ${httpOk ? '✓ OK' : '✗ Failed'}${marker}`);
 			} catch (error) {
-				log(`  Result: ✗ Failed - ${error}`);
+				const marker = currentProxyType === 'http' ? ' ← Current (⚠️ NOT WORKING)' : '';
+				log(`  Result: ✗ Failed${marker}`);
+			}
+			log('');
+
+			// Test SOCKS5 proxy
+			log(`[Test 4] Testing SOCKS5 proxy connectivity...`);
+			const socks5Cmd = `curl -x socks5://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`;
+			log(`  Command: ${socks5Cmd}`);
+			let socks5Ok = false;
+			try {
+				const { stdout } = await execAsync(socks5Cmd, { timeout: 15000 });
+				const httpCode = stdout.trim();
+				socks5Ok = httpCode === '200' || httpCode === '301' || httpCode === '302';
+				const marker = currentProxyType === 'socks5' ? ' ← Current' : '';
+				log(`  Result: HTTP ${httpCode} ${socks5Ok ? '✓ OK' : '✗ Failed'}${marker}`);
+			} catch (error) {
+				const marker = currentProxyType === 'socks5' ? ' ← Current (⚠️ NOT WORKING)' : '';
+				log(`  Result: ✗ Failed${marker}`);
+			}
+			log('');
+
+			// Test SOCKS5H proxy (SOCKS5 with remote DNS resolution)
+			log(`[Test 5] Testing SOCKS5H proxy connectivity (remote DNS)...`);
+			const socks5hCmd = `curl -x socks5h://${proxyHost}:${proxyPort} https://www.google.com -s -o /dev/null -w "%{http_code}" --connect-timeout 10`;
+			log(`  Command: ${socks5hCmd}`);
+			try {
+				const { stdout } = await execAsync(socks5hCmd, { timeout: 15000 });
+				const httpCode = stdout.trim();
+				const socks5hOk = httpCode === '200' || httpCode === '301' || httpCode === '302';
+				log(`  Result: HTTP ${httpCode} ${socks5hOk ? '✓ OK' : '✗ Failed'}`);
+			} catch (error) {
+				log(`  Result: ✗ Failed`);
 			}
 			log('');
 		}

@@ -2,6 +2,32 @@
 
 All notable changes to the "Antigravity SSH Proxy" extension will be documented in this file.
 
+## [0.0.9] - 2026-02-05
+
+### Added
+
+- **Status Panel Proxy Type Selector**: Added proxy type dropdown (HTTP/SOCKS5) to the Status & Config section in Status Panel for easy configuration.
+- **Protocol Availability Testing**: Diagnostics now tests both HTTP and SOCKS5 protocols and displays availability of each in a list format.
+
+### Fixed
+
+- **MGraftcp Diagnostics**: Fixed diagnostic check to accurately detect `mgraftcp-fakedns` binary and display both wrapper and extension versions in the diagnostic report.
+
+### Improved
+
+- **Smart Protocol Warning**: If the currently selected proxy protocol is not working but another is available, the diagnostic shows a warning with suggestion to switch.
+
+## [0.0.8] - 2026-02-04
+
+### Added
+
+- **Proxy Type Selection**: Added ability to select proxy type (HTTP or SOCKS5) through VS Code settings UI.
+- **Configurable Proxy Protocol**: New `antigravity-ssh-proxy.proxyType` setting allows users to choose between HTTP (recommended for Clash, V2Ray) and SOCKS5 protocols.
+
+### Improved
+
+- **Setup Script**: Enhanced `setup-proxy.sh` to support both HTTP and SOCKS5 proxy protocols based on user configuration.
+
 ## [0.0.7] - 2026-02-04
 
 ### Fixed
