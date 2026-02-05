@@ -822,6 +822,10 @@ export class StatusManager {
             font-size: 11px;
         }
         
+        .input-row label.toggle {
+            flex: none;
+        }
+        
         .input-row input[type="text"],
         .input-row input[type="number"] {
             width: 100px;
