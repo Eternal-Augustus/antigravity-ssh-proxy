@@ -583,13 +583,25 @@ async function runSetupScriptSilently(proxyHost: string, proxyPort: number, prox
 		// Ensure script is executable
 		await execAsync(`chmod +x "${scriptPath}"`);
 
+		// Read extension version from package.json
+		const packageJsonPath = path.join(extensionPath, 'package.json');
+		let extensionVersion = 'unknown';
+		try {
+			const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
+			const packageJson = JSON.parse(packageJsonContent);
+			extensionVersion = packageJson.version || 'unknown';
+		} catch (e) {
+			log(`Failed to read package.json: ${e}`);
+		}
+
 		// Execute script directly with environment variables for proxy config
 		const env = {
 			...process.env,
 			PROXY_HOST: proxyHost,
 			PROXY_PORT: String(proxyPort),
 			PROXY_TYPE: proxyType,
-			EXTENSION_PATH: extensionPath  // Current extension's exact path
+			EXTENSION_PATH: extensionPath,  // Current extension's exact path
+			EXTENSION_VERSION: extensionVersion  // Extension version for update detection
 		};
 
 		const { stdout, stderr } = await execAsync(`bash "${scriptPath}" 2>&1`, { env });

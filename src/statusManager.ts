@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as net from 'net';
+import { runDiagnostics, DiagnosticCheck, DiagnosticReport, generateReportText } from './diagnostics/diagnosticRunner';
+import { TrafficCollector, TrafficStats } from './traffic/trafficCollector';
 
 export interface ProxyStatus {
     runningLocation: 'local' | 'remote';
@@ -18,6 +20,152 @@ type ConfigChangeCallback = () => Promise<void>;
 
 const REFRESH_INTERVAL_SEC = 30;
 
+// i18n translations
+const i18n = {
+    zh: {
+        title: 'Antigravity SSH Proxy(ATP)',
+        local: '本地',
+        remote: '远程',
+        connected: '已连接',
+        partial: '部分连接',
+        disconnected: '未连接',
+        statusConfig: '状态与配置',
+        sshForwarding: 'SSH 转发',
+        localProxy: '本地代理',
+        proxy: '代理状态',
+        languageServer: '语言服务',
+        reachable: '可达',
+        unreachable: '不可达',
+        on: '开启',
+        off: '关闭',
+        configured: '已配置',
+        notConfigured: '未配置',
+        enableForwarding: '启用转发',
+        localPort: '本地端口',
+        remotePort: '远程端口',
+        proxyHost: '代理地址',
+        proxyPort: '代理端口',
+        diagnostics: '诊断检查',
+        runCheck: '运行检查',
+        copyReport: '复制报告',
+        running: '检测中...',
+        localProxyService: '本地代理服务',
+        sshConfig: 'SSH 配置',
+        remoteForward: '远程端口转发',
+        mgraftcp: 'mgraftcp',
+        lsWrapper: '语言服务包装',
+        externalConn: '外部连接',
+        localOnly: '仅本地可用',
+        remoteOnly: '仅远程可用',
+        traffic: '流量监控',
+        connections: '连接',
+        session: '会话时长',
+        totalRequests: '总请求',
+        tips: '使用提示',
+        refresh: '刷新',
+        save: '保存',
+        autoRefresh: '自动刷新',
+        updated: '已更新',
+        tunnelWarningTitle: 'SSH 隧道未建立',
+        tunnelWarningMsg: '代理不可达。这通常发生在通过 Antigravity 的"最近连接"直接连接远程时。',
+        tunnelStep1: '关闭此远程连接',
+        tunnelStep2: '先打开一个本地窗口',
+        tunnelStep3: '然后从本地窗口连接远程',
+        closeRemote: '关闭远程连接',
+        tipTitleLocal: '正确的连接流程',
+        tipStep1Local: '在本地电脑启动代理软件（如 Clash、V2Ray）',
+        tipStep2Local: '先打开一个本地 Antigravity 窗口 — 这会配置 SSH 隧道',
+        tipStep3Local: '从本地窗口连接到远程服务器',
+        tipStep4Local: '如有提示，重新加载远程窗口',
+        tipNoteLocal: '不要通过 Antigravity 的"最近连接"直接连接远程！务必先打开本地窗口！',
+        tipTitleRemote: '故障排除',
+        tipStep1Remote: '如果代理不可达，说明 SSH 隧道未建立',
+        tipStep2Remote: '关闭当前远程连接',
+        tipStep3Remote: '先打开一个新的本地窗口（文件 → 新建窗口）',
+        tipStep4Remote: '然后从本地窗口连接到远程服务器',
+        tipNoteRemote: '这通常发生在你通过 Antigravity 的"最近连接"直接连接远程，而没有先打开本地窗口的情况下。',
+        pending: '待检测',
+        success: '通过',
+        warning: '警告',
+        error: '错误',
+        skipped: '已跳过',
+        reportCopied: '报告已复制到剪贴板',
+        configSaved: '配置已保存',
+    },
+    en: {
+        title: 'Antigravity SSH Proxy(ATP)',
+        local: 'Local',
+        remote: 'Remote',
+        connected: 'Connected',
+        partial: 'Partial',
+        disconnected: 'Disconnected',
+        statusConfig: 'Status & Config',
+        sshForwarding: 'SSH Forwarding',
+        localProxy: 'Local Proxy',
+        proxy: 'Proxy',
+        languageServer: 'Language Server',
+        reachable: 'Reachable',
+        unreachable: 'Unreachable',
+        on: 'ON',
+        off: 'OFF',
+        configured: 'Configured',
+        notConfigured: 'Not Configured',
+        enableForwarding: 'Enable Forwarding',
+        localPort: 'Local Port',
+        remotePort: 'Remote Port',
+        proxyHost: 'Proxy Host',
+        proxyPort: 'Proxy Port',
+        diagnostics: 'Diagnostics',
+        runCheck: 'Run Check',
+        copyReport: 'Copy Report',
+        running: 'Running...',
+        localProxyService: 'Local Proxy Service',
+        sshConfig: 'SSH Configuration',
+        remoteForward: 'Remote Port Forwarding',
+        mgraftcp: 'mgraftcp',
+        lsWrapper: 'Language Server Wrapper',
+        externalConn: 'External Connectivity',
+        localOnly: 'Local only',
+        remoteOnly: 'Remote only',
+        traffic: 'Traffic Monitor',
+        connections: 'connections',
+        session: 'Session',
+        totalRequests: 'Total Requests',
+        tips: 'Tips',
+        refresh: 'Refresh',
+        save: 'Save',
+        autoRefresh: 'Auto refresh',
+        updated: 'Updated',
+        tunnelWarningTitle: 'SSH Tunnel Not Established',
+        tunnelWarningMsg: 'Proxy is unreachable. This usually happens when you connect directly via Antigravity\'s recent connections.',
+        tunnelStep1: 'Close this remote connection',
+        tunnelStep2: 'Open a new local window first',
+        tunnelStep3: 'Then connect to remote from the local window',
+        closeRemote: 'Close Remote Connection',
+        tipTitleLocal: 'Correct Connection Flow',
+        tipStep1Local: 'Start your local proxy (e.g., Clash, V2Ray) on your computer',
+        tipStep2Local: 'Open a local Antigravity window first — this configures SSH tunnel',
+        tipStep3Local: 'Connect to remote server from the local window',
+        tipStep4Local: 'Reload remote window if prompted',
+        tipNoteLocal: 'Do NOT connect directly via Antigravity\'s recent connections. Always open a local window first!',
+        tipTitleRemote: 'Troubleshooting',
+        tipStep1Remote: 'If proxy is unreachable, the SSH tunnel was not established',
+        tipStep2Remote: 'Close this remote connection',
+        tipStep3Remote: 'Open a new local window first (File → New Window)',
+        tipStep4Remote: 'Then connect to remote from the local window',
+        tipNoteRemote: 'This usually happens when you connect directly via Antigravity\'s recent connections without opening a local window first.',
+        pending: 'Pending',
+        success: 'Pass',
+        warning: 'Warning',
+        error: 'Error',
+        skipped: 'Skipped',
+        reportCopied: 'Report copied to clipboard',
+        configSaved: 'Configuration saved',
+    }
+};
+
+type Lang = 'zh' | 'en';
+
 export class StatusManager {
     private statusBarItem: vscode.StatusBarItem;
     private currentStatus: ProxyStatus;
@@ -27,6 +175,12 @@ export class StatusManager {
     private countdownInterval: NodeJS.Timeout | undefined;
     private secondsUntilRefresh: number = REFRESH_INTERVAL_SEC;
     private onConfigChange: ConfigChangeCallback | undefined;
+    
+    // New properties for unified dashboard
+    private trafficCollector: TrafficCollector;
+    private currentDiagnosticReport: DiagnosticReport | null = null;
+    private isRunningDiagnostics: boolean = false;
+    private currentLang: Lang = 'zh';
 
     constructor(private isLocal: boolean, private context: vscode.ExtensionContext) {
         this.statusBarItem = vscode.window.createStatusBarItem(
@@ -48,12 +202,18 @@ export class StatusManager {
             lastUpdated: new Date(),
         };
 
+        // Initialize traffic collector
+        this.trafficCollector = new TrafficCollector();
+        
+        // Load saved language preference (default to Chinese)
+        this.currentLang = this.context.globalState.get<Lang>('uiLanguage', 'zh');
+
         this.updateStatusBar();
         this.statusBarItem.show();
     }
 
     /**
-     * 设置配置变更回调（用于重新应用 SSH 配置）
+     * Set config change callback for SSH config updates
      */
     setConfigChangeCallback(callback: ConfigChangeCallback): void {
         this.onConfigChange = callback;
@@ -162,6 +322,14 @@ export class StatusManager {
             }
         );
 
+        // Start traffic collector when panel opens (remote only)
+        if (!this.isLocal) {
+            this.trafficCollector.start();
+            this.trafficCollector.onUpdate(() => {
+                this.updatePanelIfOpen();
+            });
+        }
+
         this.statusPanel.webview.html = this.getPanelHtml();
 
         this.statusPanel.webview.onDidReceiveMessage(
@@ -169,15 +337,23 @@ export class StatusManager {
                 switch (message.command) {
                     case 'refresh':
                         await this.refreshStatus();
+                        if (!this.isLocal) {
+                            await this.trafficCollector.refresh();
+                        }
                         break;
                     case 'saveConfig':
                         await this.saveConfig(message.config);
                         break;
-                    case 'openDiagnostics':
-                        vscode.commands.executeCommand('antigravity-ssh-proxy.diagnose');
+                    case 'runDiagnostics':
+                        await this.runInlineDiagnostics();
                         break;
-                    case 'openTrafficPanel':
-                        vscode.commands.executeCommand('antigravity-ssh-proxy.showTrafficPanel');
+                    case 'copyReport':
+                        await this.copyDiagnosticReport();
+                        break;
+                    case 'setLanguage':
+                        this.currentLang = message.lang as Lang;
+                        await this.context.globalState.update('uiLanguage', this.currentLang);
+                        this.updatePanelIfOpen();
                         break;
                     case 'closeRemote':
                         vscode.window.showInformationMessage(
@@ -187,9 +363,6 @@ export class StatusManager {
                             vscode.commands.executeCommand('workbench.action.remote.close');
                         });
                         break;
-                    case 'saveLangPreference':
-                        this.context.globalState.update('tipLanguage', message.lang);
-                        break;
                 }
             },
             undefined,
@@ -198,11 +371,53 @@ export class StatusManager {
 
         this.statusPanel.onDidDispose(() => {
             this.statusPanel = undefined;
+            if (!this.isLocal) {
+                this.trafficCollector.stop();
+            }
         });
     }
 
     /**
-     * 保存配置
+     * Run diagnostics inline and update panel
+     */
+    private async runInlineDiagnostics(): Promise<void> {
+        if (this.isRunningDiagnostics) {
+            return;
+        }
+        
+        this.isRunningDiagnostics = true;
+        this.updatePanelIfOpen();
+
+        try {
+            this.currentDiagnosticReport = await runDiagnostics((checks) => {
+                // Update panel with progress
+                if (this.statusPanel) {
+                    this.statusPanel.webview.postMessage({
+                        command: 'diagnosticProgress',
+                        checks: checks
+                    });
+                }
+            });
+        } finally {
+            this.isRunningDiagnostics = false;
+            this.updatePanelIfOpen();
+        }
+    }
+
+    /**
+     * Copy diagnostic report to clipboard
+     */
+    private async copyDiagnosticReport(): Promise<void> {
+        if (this.currentDiagnosticReport) {
+            const text = generateReportText(this.currentDiagnosticReport);
+            await vscode.env.clipboard.writeText(text);
+            const t = i18n[this.currentLang];
+            vscode.window.showInformationMessage(t.reportCopied);
+        }
+    }
+
+    /**
+     * Save configuration
      */
     private async saveConfig(newConfig: {
         localProxyPort?: number;
@@ -211,6 +426,7 @@ export class StatusManager {
         enableLocalForwarding?: boolean;
     }): Promise<void> {
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+        const t = i18n[this.currentLang];
         
         try {
             if (newConfig.localProxyPort !== undefined) {
@@ -226,13 +442,13 @@ export class StatusManager {
                 await config.update('enableLocalForwarding', newConfig.enableLocalForwarding, vscode.ConfigurationTarget.Global);
             }
 
-            // 触发配置变更回调
+            // Trigger config change callback
             if (this.onConfigChange) {
                 await this.onConfigChange();
             }
 
             await this.refreshStatus();
-            vscode.window.showInformationMessage('Configuration saved');
+            vscode.window.showInformationMessage(t.configSaved);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to save config: ${error}`);
         }
@@ -259,21 +475,21 @@ export class StatusManager {
 
         if (this.isLocal) {
             if (status.sshConfigEnabled && status.localProxyReachable) {
-                this.statusBarItem.color = '#3fb950';
+                this.statusBarItem.color = '#22c55e';
                 tooltip = 'Antigravity SSH Proxy (ATP)\n✅ Connected';
             } else if (status.sshConfigEnabled) {
-                this.statusBarItem.color = '#d29922';
+                this.statusBarItem.color = '#eab308';
                 tooltip = 'Antigravity SSH Proxy (ATP)\n⚠️ SSH configured, proxy unreachable';
             } else {
-                this.statusBarItem.color = '#f85149';
+                this.statusBarItem.color = '#ef4444';
                 tooltip = 'Antigravity SSH Proxy (ATP)\n❌ Disconnected';
             }
         } else {
             if (status.remoteProxyReachable) {
-                this.statusBarItem.color = '#3fb950';
+                this.statusBarItem.color = '#22c55e';
                 tooltip = 'Antigravity SSH Proxy (ATP)\n✅ Proxy OK';
             } else {
-                this.statusBarItem.color = '#f85149';
+                this.statusBarItem.color = '#ef4444';
                 tooltip = 'Antigravity SSH Proxy (ATP)\n❌ Proxy unreachable';
             }
         }
@@ -301,31 +517,50 @@ export class StatusManager {
         }
     }
 
+    private getDiagnosticCheckName(id: string, t: typeof i18n.zh): string {
+        const names: Record<string, string> = {
+            'local-proxy': t.localProxyService,
+            'ssh-config': t.sshConfig,
+            'remote-forward': t.remoteForward,
+            'mgraftcp': t.mgraftcp,
+            'ls-wrapper': t.lsWrapper,
+            'external-connectivity': t.externalConn,
+        };
+        return names[id] || id;
+    }
+
     private getPanelHtml(): string {
         const status = this.currentStatus;
         const isLocal = status.runningLocation === 'local';
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
         const enableForwarding = config.get<boolean>('enableLocalForwarding', true);
-        const savedLang = this.context.globalState.get<string>('tipLanguage', 'en');
+        const t = i18n[this.currentLang];
+        const trafficStats = this.trafficCollector.getStats();
         
         let statusColor: string;
         let statusText: string;
 
         if (isLocal) {
             if (status.sshConfigEnabled && status.localProxyReachable) {
-                statusColor = '#3fb950';
-                statusText = 'Connected';
+                statusColor = '#22c55e';
+                statusText = t.connected;
             } else if (status.sshConfigEnabled) {
-                statusColor = '#d29922';
-                statusText = 'Partial';
+                statusColor = '#eab308';
+                statusText = t.partial;
             } else {
-                statusColor = '#f85149';
-                statusText = 'Disconnected';
+                statusColor = '#ef4444';
+                statusText = t.disconnected;
             }
         } else {
-            statusColor = status.remoteProxyReachable ? '#3fb950' : '#f85149';
-            statusText = status.remoteProxyReachable ? 'Connected' : 'Disconnected';
+            statusColor = status.remoteProxyReachable ? '#22c55e' : '#ef4444';
+            statusText = status.remoteProxyReachable ? t.connected : t.disconnected;
         }
+
+        // Generate diagnostics HTML
+        const diagnosticsHtml = this.generateDiagnosticsHtml(t, isLocal);
+        
+        // Generate traffic HTML (remote only)
+        const trafficHtml = this.generateTrafficHtml(t, trafficStats, isLocal);
 
         return `<!DOCTYPE html>
 <html>
@@ -333,506 +568,748 @@ export class StatusManager {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            padding: 20px;
-            font-size: 13px;
+        :root {
+            --bg-primary: #0d0d0d;
+            --bg-card: #1a1a1a;
+            --border-color: #252525;
+            --text-primary: #f0f0f0;
+            --text-secondary: #666;
+            --text-muted: #444;
+            --accent: #888;
+            --success: #22c55e;
+            --error: #ef4444;
+            --warning: #eab308;
         }
-        .container { max-width: 420px; margin: 0 auto; }
         
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 24px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+        
+        /* Header */
         .header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 20px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid var(--vscode-editorWidget-border);
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
         }
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
             background: ${statusColor};
-            box-shadow: 0 0 6px ${statusColor}80;
+            box-shadow: 0 0 12px ${statusColor}60;
         }
-        .title { font-size: 15px; font-weight: 600; }
+        
+        .title {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .env-badge {
+            font-size: 9px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 2px;
+            background: var(--border-color);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
         .status-badge {
             margin-left: auto;
             font-size: 10px;
-            font-weight: 500;
-            padding: 3px 8px;
-            border-radius: 10px;
-            background: ${statusColor}20;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 2px;
+            background: ${statusColor}15;
             color: ${statusColor};
             text-transform: uppercase;
-        }
-        .env-tag {
-            font-size: 9px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            text-transform: uppercase;
-        }
-        
-        .section {
-            margin-bottom: 20px;
-        }
-        .section-title {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--vscode-descriptionForeground);
-            text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 10px;
         }
         
+        .lang-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            margin-left: 12px;
+        }
+        
+        .lang-btn {
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        
+        .lang-btn:first-child {
+            border-radius: 2px 0 0 2px;
+        }
+        
+        .lang-btn:last-child {
+            border-radius: 0 2px 2px 0;
+            border-left: none;
+        }
+        
+        .lang-btn.active {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+        
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 200px;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .grid-full {
+            grid-column: 1 / -1;
+        }
+        
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Cards */
         .card {
-            background: var(--vscode-editorWidget-background);
-            border: 1px solid var(--vscode-editorWidget-border);
-            border-radius: 6px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
             overflow: hidden;
         }
         
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-primary);
+        }
+        
+        .card-title {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+        
+        .card-title-icon {
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+        
+        .card-body {
+            padding: 12px 16px;
+        }
+        
+        /* Rows */
         .row {
             display: flex;
             align-items: center;
-            padding: 10px 12px;
-            border-bottom: 1px solid var(--vscode-editorWidget-border);
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
         }
-        .row:last-child { border-bottom: none; }
+        
+        .row:last-child {
+            border-bottom: none;
+        }
+        
         .row-label {
             flex: 1;
-            color: var(--vscode-descriptionForeground);
+            color: var(--text-secondary);
+            font-size: 11px;
         }
-        .row-value {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 12px;
-        }
-        .row-value.on { color: #3fb950; }
-        .row-value.off { color: #f85149; }
         
+        .row-value {
+            font-weight: 600;
+            font-size: 11px;
+        }
+        
+        .row-value.success { color: var(--success); }
+        .row-value.error { color: var(--error); }
+        .row-value.warning { color: var(--warning); }
+        .row-value.muted { color: var(--text-muted); }
+        
+        .row-extra {
+            margin-left: 12px;
+            color: var(--text-muted);
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Input Rows */
         .input-row {
             display: flex;
             align-items: center;
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--vscode-editorWidget-border);
-            gap: 8px;
-        }
-        .input-row:last-child { border-bottom: none; }
-        .input-row label {
-            flex: 1;
-            color: var(--vscode-descriptionForeground);
-        }
-        .input-row input[type="text"],
-        .input-row input[type="number"] {
-            width: 120px;
-            padding: 4px 8px;
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            font-family: 'SF Mono', Monaco, monospace;
-            font-size: 12px;
-        }
-        .input-row input:focus {
-            outline: none;
-            border-color: var(--vscode-focusBorder);
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+            gap: 12px;
         }
         
+        .input-row:last-child {
+            border-bottom: none;
+        }
+        
+        .input-row label {
+            flex: 1;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+        
+        .input-row input[type="text"],
+        .input-row input[type="number"] {
+            width: 100px;
+            padding: 6px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 11px;
+        }
+        
+        .input-row input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        /* Toggle Switch */
         .toggle {
             position: relative;
-            width: 36px;
-            height: 20px;
+            width: 32px;
+            height: 16px;
         }
-        .input-row .toggle {
-            flex: none;
-        }
+        
         .toggle input {
             opacity: 0;
             width: 0;
             height: 0;
         }
+        
         .toggle-slider {
             position: absolute;
             cursor: pointer;
             inset: 0;
-            background: var(--vscode-input-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 10px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
             transition: 0.2s;
         }
+        
         .toggle-slider:before {
             position: absolute;
             content: "";
-            height: 14px;
-            width: 14px;
+            height: 10px;
+            width: 10px;
             left: 2px;
             bottom: 2px;
-            background: var(--vscode-descriptionForeground);
-            border-radius: 50%;
+            background: var(--text-secondary);
+            border-radius: 1px;
             transition: 0.2s;
         }
+        
         .toggle input:checked + .toggle-slider {
-            background: #3fb950;
-            border-color: #3fb950;
+            background: var(--success);
+            border-color: var(--success);
         }
+        
         .toggle input:checked + .toggle-slider:before {
             transform: translateX(16px);
-            background: white;
+            background: var(--bg-primary);
         }
         
-        .actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-        }
-        .btn {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            padding: 8px 12px;
-            border: none;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: opacity 0.15s;
-        }
-        .btn:hover { opacity: 0.9; }
-        .btn-primary {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
-        .btn-secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .btn svg { width: 14px; height: 14px; }
-        
-        .footer {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 16px;
-            padding-top: 12px;
-            border-top: 1px solid var(--vscode-editorWidget-border);
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-        }
-        .countdown-num {
-            font-family: 'SF Mono', Monaco, monospace;
-            color: var(--vscode-editor-foreground);
-        }
-        
-        /* Alert styles */
+        /* Warning Alert */
         .alert {
             display: flex;
-            gap: 12px;
-            padding: 14px;
-            border-radius: 6px;
+            gap: 16px;
+            padding: 16px;
+            border-radius: 4px;
             border: 1px solid;
+            margin-bottom: 16px;
         }
+        
         .alert-warning {
-            background: #d299221a;
-            border-color: #d29922;
+            background: ${statusColor}08;
+            border-color: ${statusColor}40;
         }
+        
         .alert-icon {
-            font-size: 20px;
+            font-size: 18px;
             flex-shrink: 0;
         }
+        
         .alert-content {
             flex: 1;
         }
+        
         .alert-title {
-            font-weight: 600;
-            font-size: 13px;
-            color: #d29922;
-            margin-bottom: 6px;
-        }
-        .alert-message {
+            font-weight: 700;
             font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-            line-height: 1.5;
-            margin-bottom: 10px;
+            color: var(--warning);
+            margin-bottom: 8px;
         }
+        
+        .alert-message {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+        
         .alert-steps {
             display: flex;
             flex-direction: column;
             gap: 6px;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
         }
+        
         .alert-step {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 12px;
+            gap: 10px;
+            font-size: 11px;
+            color: var(--text-secondary);
         }
+        
         .step-num {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             width: 18px;
             height: 18px;
-            border-radius: 50%;
-            background: #d29922;
-            color: #000;
+            border-radius: 2px;
+            background: var(--warning);
+            color: var(--bg-primary);
             font-size: 10px;
-            font-weight: 600;
-            flex-shrink: 0;
-        }
-        .btn-warning {
-            background: #d29922;
-            color: #000;
-            font-weight: 600;
-        }
-        .btn-warning:hover {
-            background: #e5a826;
+            font-weight: 700;
         }
         
-        /* Tip card styles */
-        .section-title-row {
+        /* Diagnostics */
+        .diag-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 0;
+            gap: 10px;
+        }
+        
+        .diag-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 1px;
+            flex-shrink: 0;
+        }
+        
+        .diag-dot.pending { background: var(--text-muted); }
+        .diag-dot.running { background: var(--warning); animation: pulse 1s infinite; }
+        .diag-dot.success { background: var(--success); }
+        .diag-dot.warning { background: var(--warning); }
+        .diag-dot.error { background: var(--error); }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        
+        .diag-name {
+            flex: 1;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .diag-name.disabled {
+            color: var(--text-muted);
+        }
+        
+        .diag-status {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        
+        .diag-status.success { color: var(--success); }
+        .diag-status.error { color: var(--error); }
+        .diag-status.warning { color: var(--warning); }
+        
+        .diag-item-wrapper {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .diag-item-wrapper:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+        
+        .diag-details {
+            margin-left: 16px;
+            margin-top: 4px;
+            padding-left: 10px;
+            border-left: 2px solid var(--border-color);
+        }
+        
+        .diag-message {
+            font-size: 10px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            margin-bottom: 4px;
+        }
+        
+        .diag-suggestion {
+            font-size: 10px;
+            color: var(--warning);
+            line-height: 1.4;
+            font-style: italic;
+        }
+        
+        /* Traffic Monitor */
+        .traffic-stat {
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .traffic-stat:last-child {
+            border-bottom: none;
+        }
+        
+        .traffic-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        
+        .traffic-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        
+        .traffic-value.small {
+            font-size: 12px;
+        }
+        
+        .traffic-bar {
+            display: flex;
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        
+        .traffic-bar-fill {
+            background: var(--success);
+            transition: width 0.3s;
+        }
+        
+        .traffic-unavailable {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        /* Tips Card */
+        .tip-content {
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        
+        .tip-title {
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+        
+        .tip-steps {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .tip-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .tip-step .step-num {
+            background: var(--border-color);
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        
+        .tip-note {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px dashed var(--border-color);
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        
+        .tip-note strong {
+            color: var(--warning);
+        }
+        
+        /* Buttons */
+        .actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        
+        .btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 10px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 10px;
+            font-weight: 600;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .btn:hover {
+            background: var(--border-color);
+        }
+        
+        .btn-primary {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+        
+        .btn-primary:hover {
+            background: var(--text-secondary);
+            border-color: var(--text-secondary);
+        }
+        
+        .btn-warning {
+            background: var(--warning);
+            color: var(--bg-primary);
+            border-color: var(--warning);
+        }
+        
+        .btn-warning:hover {
+            opacity: 0.9;
+        }
+        
+        .btn-sm {
+            flex: none;
+            padding: 6px 12px;
+            font-size: 9px;
+        }
+        
+        /* Footer */
+        .footer {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 10px;
-        }
-        .lang-switch {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .lang-label {
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
             font-size: 10px;
-            font-weight: 500;
-            color: var(--vscode-descriptionForeground);
+            color: var(--text-muted);
         }
-        .toggle-small {
-            width: 28px;
-            height: 16px;
-        }
-        .toggle-small .toggle-slider:before {
-            height: 10px;
-            width: 10px;
-            left: 2px;
-            bottom: 2px;
-        }
-        .toggle-small input:checked + .toggle-slider:before {
-            transform: translateX(12px);
-        }
-        .tip-card {
-            display: flex;
-            gap: 10px;
-            padding: 12px;
-            background: var(--vscode-editorWidget-background);
-            border: 1px solid var(--vscode-editorWidget-border);
-            border-radius: 6px;
-            font-size: 12px;
-            line-height: 1.6;
-            color: var(--vscode-descriptionForeground);
-        }
-        .tip-icon {
-            font-size: 16px;
-            flex-shrink: 0;
-            margin-top: 2px;
-        }
-        .tip-content strong {
-            color: var(--vscode-editor-foreground);
-        }
-        .tip-content .tip-title {
+        
+        .countdown-num {
             font-weight: 600;
-            color: var(--vscode-editor-foreground);
-            margin-bottom: 8px;
-        }
-        .tip-content .tip-steps {
-            margin: 0;
-            padding-left: 0;
-            list-style: none;
-        }
-        .tip-content .tip-step {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            margin-bottom: 6px;
-        }
-        .tip-content .tip-step:last-child {
-            margin-bottom: 0;
-        }
-        .tip-content .step-num {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            font-size: 10px;
-            font-weight: 600;
-            flex-shrink: 0;
-        }
-        .tip-content .step-text {
-            flex: 1;
-        }
-        .tip-content .tip-note {
-            margin-top: 10px;
-            padding-top: 8px;
-            border-top: 1px dashed var(--vscode-editorWidget-border);
-            font-size: 11px;
-            opacity: 0.8;
+            color: var(--text-secondary);
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <div class="header">
-            <div class="status-dot"></div>
-            <span class="title">Antigravity SSH Proxy</span>
-            <span class="env-tag">${isLocal ? 'Local' : 'Remote'}</span>
+            <div class="status-indicator"></div>
+            <span class="title">${t.title}</span>
+            <span class="env-badge">${isLocal ? t.local : t.remote}</span>
             <span class="status-badge">${statusText}</span>
+            <div class="lang-toggle">
+                <button class="lang-btn ${this.currentLang === 'zh' ? 'active' : ''}" onclick="setLang('zh')">中</button>
+                <button class="lang-btn ${this.currentLang === 'en' ? 'active' : ''}" onclick="setLang('en')">EN</button>
+            </div>
         </div>
         
         ${!isLocal && !status.remoteProxyReachable ? `
-        <div class="section">
-            <div class="alert alert-warning">
-                <div class="alert-icon">⚠️</div>
-                <div class="alert-content">
-                    <div class="alert-title">SSH Tunnel Not Established</div>
-                    <div class="alert-message">
-                        Proxy is unreachable. This usually happens when you connect directly to remote via Antigravity's recent connections.
-                    </div>
-                    <div class="alert-steps">
-                        <div class="alert-step"><span class="step-num">1</span> Close this remote connection</div>
-                        <div class="alert-step"><span class="step-num">2</span> Open a new local window first</div>
-                        <div class="alert-step"><span class="step-num">3</span> Then connect to remote</div>
-                    </div>
-                    <button class="btn btn-warning" onclick="closeRemote()">Close Remote Connection</button>
+        <!-- Warning Alert -->
+        <div class="alert alert-warning">
+            <div class="alert-icon">⚠</div>
+            <div class="alert-content">
+                <div class="alert-title">${t.tunnelWarningTitle}</div>
+                <div class="alert-message">${t.tunnelWarningMsg}</div>
+                <div class="alert-steps">
+                    <div class="alert-step"><span class="step-num">1</span>${t.tunnelStep1}</div>
+                    <div class="alert-step"><span class="step-num">2</span>${t.tunnelStep2}</div>
+                    <div class="alert-step"><span class="step-num">3</span>${t.tunnelStep3}</div>
                 </div>
+                <button class="btn btn-warning" onclick="closeRemote()">${t.closeRemote}</button>
             </div>
         </div>
         ` : ''}
         
-        <div class="section">
-            <div class="section-title">Status</div>
-            <div class="card">
-                ${isLocal ? `
-                <div class="row">
-                    <span class="row-label">SSH Forwarding</span>
-                    <span class="row-value ${status.sshConfigEnabled ? 'on' : 'off'}">${status.sshConfigEnabled ? 'ON' : 'OFF'}</span>
-                </div>
-                <div class="row">
-                    <span class="row-label">Local Proxy</span>
-                    <span class="row-value ${status.localProxyReachable ? 'on' : 'off'}">${status.localProxyReachable ? 'Reachable' : 'Unreachable'}</span>
-                </div>
-                ` : `
-                <div class="row">
-                    <span class="row-label">Proxy</span>
-                    <span class="row-value ${status.remoteProxyReachable ? 'on' : 'off'}">${status.remoteProxyReachable ? 'Reachable' : 'Unreachable'}</span>
-                </div>
-                ${status.languageServerConfigured !== undefined ? `
-                <div class="row">
-                    <span class="row-label">Language Server</span>
-                    <span class="row-value ${status.languageServerConfigured ? 'on' : 'off'}">${status.languageServerConfigured ? 'Configured' : 'Not Configured'}</span>
-                </div>
-                ` : ''}
-                `}
+        <!-- Status & Config Card -->
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <span class="card-title"><span class="card-title-icon">⚡</span>${t.statusConfig}</span>
             </div>
-        </div>
-        
-        <div class="section">
-            <div class="section-title">Configuration</div>
-            <div class="card">
+            <div class="card-body">
                 ${isLocal ? `
+                <div class="row">
+                    <span class="row-label">${t.sshForwarding}</span>
+                    <span class="row-value ${status.sshConfigEnabled ? 'success' : 'error'}">${status.sshConfigEnabled ? t.on : t.off}</span>
+                </div>
+                <div class="row">
+                    <span class="row-label">${t.localProxy}</span>
+                    <span class="row-value ${status.localProxyReachable ? 'success' : 'error'}">${status.localProxyReachable ? t.reachable : t.unreachable}</span>
+                </div>
                 <div class="input-row">
-                    <label>Enable Forwarding</label>
+                    <label>${t.enableForwarding}</label>
                     <label class="toggle">
                         <input type="checkbox" id="enableForwarding" ${enableForwarding ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
                 <div class="input-row">
-                    <label>Local Proxy Port</label>
+                    <label>${t.localPort}</label>
                     <input type="number" id="localProxyPort" value="${status.localProxyPort}" min="1" max="65535">
                 </div>
                 <div class="input-row">
-                    <label>Remote Port</label>
+                    <label>${t.remotePort}</label>
                     <input type="number" id="remoteProxyPort" value="${status.remoteProxyPort}" min="1" max="65535">
                 </div>
                 ` : `
+                <div class="row">
+                    <span class="row-label">${t.proxy}</span>
+                    <span class="row-value ${status.remoteProxyReachable ? 'success' : 'error'}">${status.remoteProxyReachable ? t.reachable : t.unreachable}</span>
+                    <span class="row-extra">${status.remoteProxyHost}</span>
+                </div>
+                ${status.languageServerConfigured !== undefined ? `
+                <div class="row">
+                    <span class="row-label">${t.languageServer}</span>
+                    <span class="row-value ${status.languageServerConfigured ? 'success' : 'error'}">${status.languageServerConfigured ? t.configured : t.notConfigured}</span>
+                </div>
+                ` : ''}
                 <div class="input-row">
-                    <label>Proxy Host</label>
+                    <label>${t.proxyHost}</label>
                     <input type="text" id="remoteProxyHost" value="${status.remoteProxyHost}">
                 </div>
                 <div class="input-row">
-                    <label>Proxy Port</label>
+                    <label>${t.proxyPort}</label>
                     <input type="number" id="remoteProxyPort" value="${status.remoteProxyPort}" min="1" max="65535">
                 </div>
                 `}
             </div>
         </div>
         
+        <!-- Diagnostics Card -->
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <span class="card-title"><span class="card-title-icon">◎</span>${t.diagnostics}</span>
+                <div style="display: flex; gap: 6px;">
+                    <button class="btn btn-sm" onclick="runDiagnostics()" ${this.isRunningDiagnostics ? 'disabled' : ''}>
+                        ${this.isRunningDiagnostics ? t.running : t.runCheck}
+                    </button>
+                    <button class="btn btn-sm" onclick="copyReport()" ${!this.currentDiagnosticReport ? 'disabled' : ''}>
+                        ${t.copyReport}
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                ${diagnosticsHtml}
+            </div>
+        </div>
+        
+        <!-- Tips & Traffic Grid -->
+        <div class="grid">
+            <!-- Tips Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><span class="card-title-icon">◇</span>${t.tips}</span>
+                </div>
+                <div class="card-body">
+                    <div class="tip-content">
+                        ${isLocal ? `
+                        <div class="tip-title">${t.tipTitleLocal}</div>
+                        <ul class="tip-steps">
+                            <li class="tip-step"><span class="step-num">1</span><span>${t.tipStep1Local}</span></li>
+                            <li class="tip-step"><span class="step-num">2</span><span>${t.tipStep2Local}</span></li>
+                            <li class="tip-step"><span class="step-num">3</span><span>${t.tipStep3Local}</span></li>
+                            <li class="tip-step"><span class="step-num">4</span><span>${t.tipStep4Local}</span></li>
+                        </ul>
+                        <div class="tip-note"><strong>⚠</strong> ${t.tipNoteLocal}</div>
+                        ` : `
+                        <div class="tip-title">${t.tipTitleRemote}</div>
+                        <ul class="tip-steps">
+                            <li class="tip-step"><span class="step-num">1</span><span>${t.tipStep1Remote}</span></li>
+                            <li class="tip-step"><span class="step-num">2</span><span>${t.tipStep2Remote}</span></li>
+                            <li class="tip-step"><span class="step-num">3</span><span>${t.tipStep3Remote}</span></li>
+                            <li class="tip-step"><span class="step-num">4</span><span>${t.tipStep4Remote}</span></li>
+                        </ul>
+                        <div class="tip-note">${t.tipNoteRemote}</div>
+                        `}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Traffic Card -->
+            ${trafficHtml}
+        </div>
+        
+        <!-- Actions -->
         <div class="actions">
-            <button class="btn btn-secondary" onclick="refresh()">
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M13.5 2a.5.5 0 0 0-.5.5V5h-2.5a.5.5 0 0 0 0 1H14a.5.5 0 0 0 .5-.5V2.5a.5.5 0 0 0-.5-.5z"/>
-                    <path d="M8 3a5 5 0 1 0 4.546 7.086.5.5 0 0 0-.908-.417A4 4 0 1 1 8 4a.5.5 0 0 0 0-1z"/>
-                </svg>
-                Refresh
-            </button>
-            <button class="btn btn-primary" onclick="saveConfig()">
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
-                </svg>
-                Save
-            </button>
+            <button class="btn" onclick="refresh()">${t.refresh}</button>
+            <button class="btn btn-primary" onclick="saveConfig()">${t.save}</button>
         </div>
         
-        <div class="actions" style="margin-top: 8px;">
-            <button class="btn btn-secondary" onclick="openDiagnostics()">
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
-                    <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/>
-                </svg>
-                Diagnose
-            </button>
-            ${!isLocal ? `
-            <button class="btn btn-secondary" onclick="openTrafficPanel()">
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M0 0h1v15h15v1H0V0zm14.817 3.113a.5.5 0 0 1 .07.704l-4.5 5.5a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61 4.15-5.073a.5.5 0 0 1 .704-.07z"/>
-                </svg>
-                Traffic
-            </button>
-            ` : ''}
-        </div>
-        
-        <div class="section">
-            <div class="section-title-row">
-                <span class="section-title">Tips</span>
-                <div class="lang-switch">
-                    <span class="lang-label" id="langLabel">EN</span>
-                    <label class="toggle toggle-small">
-                        <input type="checkbox" id="langToggle" onchange="toggleLang()">
-                        <span class="toggle-slider"></span>
-                    </label>
-                    <span class="lang-label">CN</span>
-                </div>
-            </div>
-            <div class="tip-card">
-                <div class="tip-icon">💡</div>
-                <div class="tip-content" id="tipContent">
-                    <!-- Content will be set by JavaScript -->
-                </div>
-            </div>
-        </div>
-        
+        <!-- Footer -->
         <div class="footer">
-            <span>Auto refresh in <span class="countdown-num" id="countdown">${this.secondsUntilRefresh}</span>s</span>
-            <span>Updated ${status.lastUpdated.toLocaleTimeString()}</span>
+            <span>${t.autoRefresh}: <span class="countdown-num" id="countdown">${this.secondsUntilRefresh}</span>s</span>
+            <span>${t.updated} ${status.lastUpdated.toLocaleTimeString()}</span>
         </div>
     </div>
     
@@ -857,83 +1334,21 @@ export class StatusManager {
             vscode.postMessage({ command: 'saveConfig', config });
         }
         
-        function openDiagnostics() {
-            vscode.postMessage({ command: 'openDiagnostics' });
+        function runDiagnostics() {
+            vscode.postMessage({ command: 'runDiagnostics' });
         }
         
-        function openTrafficPanel() {
-            vscode.postMessage({ command: 'openTrafficPanel' });
+        function copyReport() {
+            vscode.postMessage({ command: 'copyReport' });
+        }
+        
+        function setLang(lang) {
+            vscode.postMessage({ command: 'setLanguage', lang });
         }
         
         function closeRemote() {
             vscode.postMessage({ command: 'closeRemote' });
         }
-        
-        // Language toggle
-        const tips = {
-            local: {
-                en: \`
-                    <div class="tip-title">🚀 Correct Connection Flow</div>
-                    <ul class="tip-steps">
-                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">Start your <strong>local proxy</strong> (e.g., Clash, V2Ray) on your computer</span></li>
-                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>Open a local Antigravity window first</strong> — this configures SSH tunnel</span></li>
-                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">Connect to remote server from the local window</span></li>
-                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">Reload remote window if prompted</span></li>
-                    </ul>
-                    <div class="tip-note">⚠️ <strong>Do NOT</strong> connect directly via Antigravity's recent connections. Always open a local window first!</div>
-                \`,
-                cn: \`
-                    <div class="tip-title">🚀 正确的连接流程</div>
-                    <ul class="tip-steps">
-                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">在本地电脑启动<strong>代理软件</strong>（如 Clash、V2Ray）</span></li>
-                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>先打开一个本地 Antigravity 窗口</strong> — 这会配置 SSH 隧道</span></li>
-                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">从本地窗口连接到远程服务器</span></li>
-                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">如有提示，重新加载远程窗口</span></li>
-                    </ul>
-                    <div class="tip-note">⚠️ <strong>不要</strong>通过 Antigravity 的"最近连接"直接连接远程！务必先打开本地窗口！</div>
-                \`
-            },
-            remote: {
-                en: \`
-                    <div class="tip-title">🔧 Troubleshooting</div>
-                    <ul class="tip-steps">
-                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">If proxy is <strong>unreachable</strong>, the SSH tunnel was not established</span></li>
-                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>Close this remote connection</strong></span></li>
-                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">Open a <strong>new local window</strong> first (File → New Window)</span></li>
-                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">Then connect to remote from the local window</span></li>
-                    </ul>
-                    <div class="tip-note">💡 This usually happens when you connect directly via Antigravity's recent connections without opening a local window first.</div>
-                \`,
-                cn: \`
-                    <div class="tip-title">🔧 故障排除</div>
-                    <ul class="tip-steps">
-                        <li class="tip-step"><span class="step-num">1</span><span class="step-text">如果代理<strong>不可达</strong>，说明 SSH 隧道未建立</span></li>
-                        <li class="tip-step"><span class="step-num">2</span><span class="step-text"><strong>关闭当前远程连接</strong></span></li>
-                        <li class="tip-step"><span class="step-num">3</span><span class="step-text">先打开一个<strong>新的本地窗口</strong>（文件 → 新建窗口）</span></li>
-                        <li class="tip-step"><span class="step-num">4</span><span class="step-text">然后从本地窗口连接到远程服务器</span></li>
-                    </ul>
-                    <div class="tip-note">💡 这通常发生在你通过 Antigravity 的"最近连接"直接连接远程，而没有先打开本地窗口的情况下。</div>
-                \`
-            }
-        };
-        
-        let currentLang = '${savedLang}';
-        
-        function toggleLang() {
-            currentLang = document.getElementById('langToggle').checked ? 'cn' : 'en';
-            updateTipContent();
-            // Save preference
-            vscode.postMessage({ command: 'saveLangPreference', lang: currentLang });
-        }
-        
-        function updateTipContent() {
-            const content = isLocal ? tips.local[currentLang] : tips.remote[currentLang];
-            document.getElementById('tipContent').innerHTML = content;
-        }
-        
-        // Initialize with saved preference
-        document.getElementById('langToggle').checked = currentLang === 'cn';
-        updateTipContent();
         
         window.addEventListener('message', event => {
             const message = event.data;
@@ -947,10 +1362,121 @@ export class StatusManager {
 </html>`;
     }
 
+    /**
+     * Generate diagnostics section HTML
+     */
+    private generateDiagnosticsHtml(t: typeof i18n.zh, isLocal: boolean): string {
+        const checks = this.currentDiagnosticReport?.checks || [
+            { id: 'local-proxy', name: 'Local Proxy Service', status: 'pending' as const },
+            { id: 'ssh-config', name: 'SSH Configuration', status: 'pending' as const },
+            { id: 'remote-forward', name: 'Remote Port Forwarding', status: 'pending' as const },
+            { id: 'mgraftcp', name: 'mgraftcp Binary', status: 'pending' as const },
+            { id: 'ls-wrapper', name: 'Language Server Wrapper', status: 'pending' as const },
+            { id: 'external-connectivity', name: 'External Connectivity', status: 'pending' as const }
+        ];
+
+        return checks.map(check => {
+            const isLocalCheck = ['local-proxy', 'ssh-config'].includes(check.id);
+            const isRemoteCheck = !isLocalCheck;
+            const isDisabled = (isLocal && isRemoteCheck) || (!isLocal && isLocalCheck);
+            
+            let statusText = '';
+            let statusClass = '';
+            
+            if (isDisabled) {
+                statusText = isLocal ? t.remoteOnly : t.localOnly;
+                statusClass = 'muted';
+            } else if (check.status === 'pending') {
+                statusText = t.pending;
+                statusClass = '';
+            } else if (check.status === 'running') {
+                statusText = '...';
+                statusClass = '';
+            } else if (check.status === 'success') {
+                statusText = '✓';
+                statusClass = 'success';
+            } else if (check.status === 'warning') {
+                statusText = '!';
+                statusClass = 'warning';
+            } else if (check.status === 'error') {
+                statusText = '✗';
+                statusClass = 'error';
+            }
+            
+            // Get message and suggestion from the check
+            const message = (check as DiagnosticCheck).message;
+            const suggestion = (check as DiagnosticCheck).suggestion;
+            const hasDetails = !isDisabled && (message || suggestion);
+            
+            return `
+                <div class="diag-item-wrapper">
+                    <div class="diag-item">
+                        <div class="diag-dot ${isDisabled ? 'pending' : check.status}"></div>
+                        <span class="diag-name ${isDisabled ? 'disabled' : ''}">${this.getDiagnosticCheckName(check.id, t)}</span>
+                        <span class="diag-status ${statusClass}">${statusText}</span>
+                    </div>
+                    ${hasDetails ? `
+                    <div class="diag-details">
+                        ${message ? `<div class="diag-message">${message}</div>` : ''}
+                        ${suggestion ? `<div class="diag-suggestion">${suggestion}</div>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    /**
+     * Generate traffic section HTML
+     */
+    private generateTrafficHtml(t: typeof i18n.zh, stats: TrafficStats, isLocal: boolean): string {
+        if (isLocal) {
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title"><span class="card-title-icon">◈</span>${t.traffic}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="traffic-unavailable">${t.remoteOnly}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        const sessionDuration = this.trafficCollector.getSessionDuration();
+        const barWidth = Math.min(stats.activeConnections * 10, 100);
+
+        return `
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><span class="card-title-icon">◈</span>${t.traffic}</span>
+                </div>
+                <div class="card-body">
+                    <div class="traffic-stat">
+                        <div class="traffic-label">${t.connections}</div>
+                        <div class="traffic-value">${stats.activeConnections}</div>
+                        <div class="traffic-bar">
+                            <div class="traffic-bar-fill" style="width: ${barWidth}%"></div>
+                        </div>
+                    </div>
+                    <div class="traffic-stat">
+                        <div class="traffic-label">${t.session}</div>
+                        <div class="traffic-value small">${sessionDuration}</div>
+                    </div>
+                    <div class="traffic-stat">
+                        <div class="traffic-label">${t.totalRequests}</div>
+                        <div class="traffic-value small">${stats.totalConnectionsSeen}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     dispose(): void {
         this.stopAutoRefresh();
         this.statusBarItem.dispose();
         this.statusPanel?.dispose();
+        this.trafficCollector.dispose();
         this.updateCallbacks = [];
     }
 }
