@@ -42,11 +42,45 @@
 
 ## 快速开始
 
-1. **本地安装**：在 **本地 Antigravity** 环境中搜索并安装 "Antigravity SSH Proxy" 插件（注意：由于当前安装量较少，搜索时可能需要**按名称排序**才能找到）。
-2. **连接远程**：通过 Antigravity Remote - SSH 连接到您的远程 Linux 服务器。
-3. **远程安装**：在 **远程服务器** 环境中再次安装该插件（可以在插件视图的 "SSH: [服务器名]" 分类下点击安装）。
-4. **重新加载**：执行 **Developer: Reload Window** 命令（重新加载窗口）或重启 Antigravity，以确保代理服务正确初始化。
-5. **配置端口**：在设置中配置 `localProxyPort`（例如 7890）以匹配您的本地代理软件。
+### 前置条件
+
+在开始之前，请确保满足以下条件：
+
+- ✅ 本地代理软件（如 Clash、V2Ray）已启动并正常运行
+- ✅ 本地 Antigravity 的 AI 功能可以正常使用（这表明您的网络环境已正确配置）
+
+---
+
+### 配置步骤
+
+**Step 1 — 本地安装与配置**
+
+1. 在本地 Antigravity 中搜索并安装 **Antigravity SSH Proxy** 插件
+2. 点击左下角 **ATP 面板**，配置 `localProxyPort` 为您本地代理端口（如 `7890`）
+3. 检查面板状态，确认本地配置无异常
+
+**Step 2 — 远程安装**
+
+1. 使用 Antigravity SSH 连接到远程 Linux 服务器
+2. 在插件视图的 **"SSH: [服务器名]"** 分类下，再次安装本插件
+
+**Step 3 — 激活并验证**
+
+1. 按照提示执行 **Reload Window** 重启窗口
+2. 打开右下角 **ATP 面板**，运行 **连接诊断** 检查代理状态
+3. 显示正常后，远程 AI 功能即可使用 🎉
+
+---
+
+### 故障排查
+
+如果配置后仍无法正常使用，请检查以下日志：
+
+| 日志频道 | 查看路径 |
+|---------|---------|
+| `Antigravity` | Output 面板 → Antigravity |
+| `Antigravity SSH Proxy` | Output 面板 → Antigravity SSH Proxy |
+
 
 ## 扩展设置
 

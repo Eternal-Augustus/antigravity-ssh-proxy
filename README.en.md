@@ -42,11 +42,44 @@ This extension must be installed on **BOTH** your local machine and remote serve
 
 ## Quick Start
 
-1. **Install locally**: Install the **Antigravity SSH Proxy** extension on your local Antigravity. (Note: Due to low install count, you may need to **sort by name** in the marketplace to find it).
-2. **Connect**: Connect to your remote Linux server using Antigravity Remote - SSH.
-3. **Install remotely**: Install the extension again **on the remote server** (found in the Extensions view under the SSH section).
-4. **Reload**: Execute the **Developer: Reload Window** command (or restart Antigravity) to ensure all services are properly initialized.
-5. **Configure**: Set your `localProxyPort` in settings (e.g., 7890) to match your local proxy service.
+### Prerequisites
+
+Before you begin, ensure the following conditions are met:
+
+- ✅ Your local proxy software (e.g., Clash, V2Ray) is running and properly configured
+- ✅ AI features work correctly in your local Antigravity (this confirms your network environment is set up correctly)
+
+---
+
+### Setup Steps
+
+**Step 1 — Local Installation & Configuration**
+
+1. Search and install **Antigravity SSH Proxy** in your local Antigravity
+2. Click the **ATP Panel** in the bottom-left corner, configure `localProxyPort` to match your local proxy port (e.g., `7890`)
+3. Check the panel status to confirm local configuration is correct
+
+**Step 2 — Remote Installation**
+
+1. Connect to your remote Linux server using Antigravity SSH
+2. Install this extension again under the **"SSH: [server-name]"** category in the Extensions view
+
+**Step 3 — Activate & Verify**
+
+1. Follow the prompt to execute **Reload Window** to restart the window
+2. Open the **ATP Panel** in the bottom-right corner, run **Connection Diagnostics** to check proxy status
+3. Once everything shows normal, remote AI features are ready to use 🎉
+
+---
+
+### Troubleshooting
+
+If issues persist after configuration, check the following logs:
+
+| Log Channel | Location |
+|-------------|----------|
+| `Antigravity` | Output Panel → Antigravity |
+| `Antigravity SSH Proxy` | Output Panel → Antigravity SSH Proxy |
 
 ## Extension Settings
 
