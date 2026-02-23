@@ -97,6 +97,9 @@ const i18n = {
         configSaved: '配置已保存',
         rollbackTitle: '回滚操作',
         rollbackDesc: '此功能用于恢复之前的语言服务配置。仅当您遇到插件升级导致的严重问题或在卸载插件前使用。',
+        localPortTip: '💡 此端口需与本地代理软件（如 Clash、V2Ray）的监听端口一致，默认通常为 7890',
+        remotePortTipLocal: '💡 此端口即 SSH 隧道在远端的监听端口，必须与远端 ATP 面板中「代理端口」的值保持一致',
+        remotePortTipRemote: '💡 此端口即 SSH 隧道在远端的监听端口，必须与本地 ATP 面板中「远程端口」的值保持一致',
     },
     en: {
         title: 'Antigravity SSH Proxy(ATP)',
@@ -173,6 +176,9 @@ const i18n = {
         configSaved: 'Configuration saved',
         rollbackTitle: 'Rollback Operation',
         rollbackDesc: 'Restores previous Language Server configuration. Use only if plugin update causes critical issues or before uninstalling.',
+        localPortTip: '💡 Must match your local proxy software port (e.g., Clash, V2Ray). Default is usually 7890',
+        remotePortTipLocal: '💡 This is the SSH tunnel port on the remote side. It must match the "Proxy Port" in the Remote ATP panel',
+        remotePortTipRemote: '💡 This is the SSH tunnel port on the remote side. It must match the "Remote Port" in the Local ATP panel',
     }
 };
 
@@ -187,7 +193,7 @@ export class StatusManager {
     private countdownInterval: NodeJS.Timeout | undefined;
     private secondsUntilRefresh: number = REFRESH_INTERVAL_SEC;
     private onConfigChange: ConfigChangeCallback | undefined;
-    
+
     // New properties for unified dashboard
     private trafficCollector: TrafficCollector;
     private currentDiagnosticReport: DiagnosticReport | null = null;
@@ -216,7 +222,7 @@ export class StatusManager {
 
         // Initialize traffic collector
         this.trafficCollector = new TrafficCollector();
-        
+
         // Load saved language preference (default to Chinese)
         this.currentLang = this.context.globalState.get<Lang>('uiLanguage', 'zh');
 
@@ -244,7 +250,7 @@ export class StatusManager {
     startAutoRefresh(): void {
         this.stopAutoRefresh();
         this.secondsUntilRefresh = REFRESH_INTERVAL_SEC;
-        
+
         this.refreshInterval = setInterval(() => {
             this.refreshStatus();
             this.secondsUntilRefresh = REFRESH_INTERVAL_SEC;
@@ -271,7 +277,7 @@ export class StatusManager {
 
     async refreshStatus(): Promise<void> {
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
-        
+
         this.currentStatus.localProxyPort = config.get<number>('localProxyPort', 7890);
         this.currentStatus.remoteProxyPort = config.get<number>('remoteProxyPort', 7890);
         this.currentStatus.remoteProxyHost = config.get<string>('remoteProxyHost', '127.0.0.1');
@@ -352,9 +358,13 @@ export class StatusManager {
                         if (!this.isLocal) {
                             await this.trafficCollector.refresh();
                         }
+                        // User explicitly refreshed: full rerender to reflect latest state
+                        this.forceRenderPanel();
                         break;
                     case 'saveConfig':
                         await this.saveConfig(message.config);
+                        // Full rerender so inputs show the confirmed saved values
+                        this.forceRenderPanel();
                         break;
                     case 'runDiagnostics':
                         await this.runInlineDiagnostics();
@@ -365,7 +375,8 @@ export class StatusManager {
                     case 'setLanguage':
                         this.currentLang = message.lang as Lang;
                         await this.context.globalState.update('uiLanguage', this.currentLang);
-                        this.updatePanelIfOpen();
+                        // Language change requires full rerender for all translated strings
+                        this.forceRenderPanel();
                         break;
                     case 'closeRemote':
                         vscode.window.showInformationMessage(
@@ -399,9 +410,10 @@ export class StatusManager {
         if (this.isRunningDiagnostics) {
             return;
         }
-        
+
         this.isRunningDiagnostics = true;
-        this.updatePanelIfOpen();
+        // Full rerender to show "running..." button state (user-triggered)
+        this.forceRenderPanel();
 
         try {
             this.currentDiagnosticReport = await runDiagnostics((checks) => {
@@ -415,7 +427,8 @@ export class StatusManager {
             }, this.context.extensionUri.fsPath);
         } finally {
             this.isRunningDiagnostics = false;
-            this.updatePanelIfOpen();
+            // Full rerender to show diagnostic results
+            this.forceRenderPanel();
         }
     }
 
@@ -444,7 +457,7 @@ export class StatusManager {
         const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
         const oldProxyType = config.get<string>('proxyType', 'http');
         const t = i18n[this.currentLang];
-        
+
         try {
             if (newConfig.localProxyPort !== undefined) {
                 await config.update('localProxyPort', newConfig.localProxyPort, vscode.ConfigurationTarget.Global);
@@ -468,15 +481,15 @@ export class StatusManager {
             }
 
             await this.refreshStatus();
-            
+
             // If proxyType changed, prompt for reload
             if (newConfig.proxyType !== undefined && newConfig.proxyType !== oldProxyType) {
-                const reloadMsg = this.currentLang === 'zh' 
+                const reloadMsg = this.currentLang === 'zh'
                     ? `代理类型已更改为 ${newConfig.proxyType.toUpperCase()}。请重新加载窗口以应用更改。`
                     : `Proxy type changed to ${newConfig.proxyType.toUpperCase()}. Please reload window to apply changes.`;
                 const reloadNow = this.currentLang === 'zh' ? '立即重载' : 'Reload Now';
                 const later = this.currentLang === 'zh' ? '稍后' : 'Later';
-                
+
                 vscode.window.showInformationMessage(reloadMsg, reloadNow, later).then(selection => {
                     if (selection === reloadNow) {
                         vscode.commands.executeCommand('workbench.action.reloadWindow');
@@ -491,6 +504,50 @@ export class StatusManager {
     }
 
     private updatePanelIfOpen(): void {
+        if (!this.statusPanel) { return; }
+
+        const status = this.currentStatus;
+        const isLocal = status.runningLocation === 'local';
+        const config = vscode.workspace.getConfiguration('antigravity-ssh-proxy');
+        const t = i18n[this.currentLang];
+        const trafficStats = this.trafficCollector.getStats();
+
+        let statusColor: string;
+        let statusText: string;
+        if (isLocal) {
+            if (status.sshConfigEnabled && status.localProxyReachable) {
+                statusColor = '#22c55e'; statusText = t.connected;
+            } else if (status.sshConfigEnabled) {
+                statusColor = '#eab308'; statusText = t.partial;
+            } else {
+                statusColor = '#ef4444'; statusText = t.disconnected;
+            }
+        } else {
+            statusColor = status.remoteProxyReachable ? '#22c55e' : '#ef4444';
+            statusText = status.remoteProxyReachable ? t.connected : t.disconnected;
+        }
+
+        this.statusPanel.webview.postMessage({
+            command: 'updateStatus',
+            statusColor,
+            statusText,
+            sshConfigEnabled: status.sshConfigEnabled,
+            localProxyReachable: status.localProxyReachable,
+            remoteProxyReachable: status.remoteProxyReachable,
+            remoteProxyHost: status.remoteProxyHost,
+            languageServerConfigured: status.languageServerConfigured,
+            lastUpdated: status.lastUpdated.toLocaleTimeString(),
+            trafficHtml: this.generateTrafficHtml(t, trafficStats, isLocal),
+            t: {
+                on: t.on, off: t.off,
+                reachable: t.reachable, unreachable: t.unreachable,
+                configured: t.configured, notConfigured: t.notConfigured,
+                updated: t.updated,
+            }
+        });
+    }
+
+    private forceRenderPanel(): void {
         if (this.statusPanel) {
             this.statusPanel.webview.html = this.getPanelHtml();
         }
@@ -573,7 +630,7 @@ export class StatusManager {
         const proxyType = config.get<string>('proxyType', 'http');
         const t = i18n[this.currentLang];
         const trafficStats = this.trafficCollector.getStats();
-        
+
         let statusColor: string;
         let statusText: string;
 
@@ -595,7 +652,7 @@ export class StatusManager {
 
         // Generate diagnostics HTML
         const diagnosticsHtml = this.generateDiagnosticsHtml(t, isLocal);
-        
+
         // Generate traffic HTML (remote only)
         const trafficHtml = this.generateTrafficHtml(t, trafficStats, isLocal);
 
@@ -1236,6 +1293,16 @@ export class StatusManager {
             font-size: 9px;
         }
         
+        /* Input field tip */
+        .input-tip {
+            font-size: 9.5px;
+            color: var(--warning);
+            margin-top: 3px;
+            margin-bottom: 2px;
+            line-height: 1.4;
+            opacity: 0.85;
+        }
+        
         /* Footer */
         .footer {
             display: flex;
@@ -1258,19 +1325,19 @@ export class StatusManager {
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <div class="status-indicator"></div>
+            <div class="status-indicator" id="status-dot"></div>
             <span class="title">${t.title}</span>
             <span class="env-badge">${isLocal ? t.local : t.remote}</span>
-            <span class="status-badge">${statusText}</span>
+            <span class="status-badge" id="status-badge-text">${statusText}</span>
             <div class="lang-toggle">
                 <button class="lang-btn ${this.currentLang === 'zh' ? 'active' : ''}" onclick="setLang('zh')">中</button>
                 <button class="lang-btn ${this.currentLang === 'en' ? 'active' : ''}" onclick="setLang('en')">EN</button>
             </div>
         </div>
         
-        ${!isLocal && !status.remoteProxyReachable ? `
-        <!-- Warning Alert -->
-        <div class="alert alert-warning">
+        ${!isLocal ? `
+        <!-- Warning Alert: always in DOM for remote mode, visibility controlled by JS -->
+        <div id="tunnel-alert" class="alert alert-warning" style="${!status.remoteProxyReachable ? '' : 'display:none;'}">
             <div class="alert-icon">⚠</div>
             <div class="alert-content">
                 <div class="alert-title">${t.tunnelWarningTitle}</div>
@@ -1294,11 +1361,11 @@ export class StatusManager {
                 ${isLocal ? `
                 <div class="row">
                     <span class="row-label">${t.sshForwarding}</span>
-                    <span class="row-value ${status.sshConfigEnabled ? 'success' : 'error'}">${status.sshConfigEnabled ? t.on : t.off}</span>
+                    <span id="ssh-fwd-val" class="row-value ${status.sshConfigEnabled ? 'success' : 'error'}">${status.sshConfigEnabled ? t.on : t.off}</span>
                 </div>
                 <div class="row">
                     <span class="row-label">${t.localProxy}</span>
-                    <span class="row-value ${status.localProxyReachable ? 'success' : 'error'}">${status.localProxyReachable ? t.reachable : t.unreachable}</span>
+                    <span id="local-proxy-val" class="row-value ${status.localProxyReachable ? 'success' : 'error'}">${status.localProxyReachable ? t.reachable : t.unreachable}</span>
                 </div>
                 <div class="input-row">
                     <label>${t.enableForwarding}</label>
@@ -1311,22 +1378,22 @@ export class StatusManager {
                     <label>${t.localPort}</label>
                     <input type="number" id="localProxyPort" value="${status.localProxyPort}" min="1" max="65535">
                 </div>
+                <div class="input-tip">${t.localPortTip}</div>
                 <div class="input-row">
                     <label>${t.remotePort}</label>
                     <input type="number" id="remoteProxyPort" value="${status.remoteProxyPort}" min="1" max="65535">
                 </div>
+                <div class="input-tip">${t.remotePortTipLocal}</div>
                 ` : `
                 <div class="row">
                     <span class="row-label">${t.proxy}</span>
-                    <span class="row-value ${status.remoteProxyReachable ? 'success' : 'error'}">${status.remoteProxyReachable ? t.reachable : t.unreachable}</span>
-                    <span class="row-extra">${status.remoteProxyHost}</span>
+                    <span id="remote-proxy-val" class="row-value ${status.remoteProxyReachable ? 'success' : 'error'}">${status.remoteProxyReachable ? t.reachable : t.unreachable}</span>
+                    <span id="remote-proxy-host-extra" class="row-extra">${status.remoteProxyHost}</span>
                 </div>
-                ${status.languageServerConfigured !== undefined ? `
-                <div class="row">
+                <div id="lang-server-row" class="row" style="${status.languageServerConfigured !== undefined ? '' : 'display:none;'}">
                     <span class="row-label">${t.languageServer}</span>
-                    <span class="row-value ${status.languageServerConfigured ? 'success' : 'error'}">${status.languageServerConfigured ? t.configured : t.notConfigured}</span>
+                    <span id="lang-server-val" class="row-value ${status.languageServerConfigured ? 'success' : 'error'}">${status.languageServerConfigured !== undefined ? (status.languageServerConfigured ? t.configured : t.notConfigured) : ''}</span>
                 </div>
-                ` : ''}
                 <div class="input-row">
                     <label>${t.proxyHost}</label>
                     <input type="text" id="remoteProxyHost" value="${status.remoteProxyHost}">
@@ -1335,9 +1402,10 @@ export class StatusManager {
                     <label>${t.proxyPort}</label>
                     <input type="number" id="remoteProxyPort" value="${status.remoteProxyPort}" min="1" max="65535">
                 </div>
+                <div class="input-tip">${t.remotePortTipRemote}</div>
                 <div class="input-row">
                     <label>${t.proxyType}</label>
-                    <select id="proxyType" onchange="saveConfig()">
+                    <select id="proxyType">
                         <option value="http" ${proxyType === 'http' ? 'selected' : ''}>${t.proxyTypeHttp}</option>
                         <option value="socks5" ${proxyType === 'socks5' ? 'selected' : ''}>${t.proxyTypeSocks5}</option>
                     </select>
@@ -1401,7 +1469,7 @@ export class StatusManager {
             </div>
             
             <!-- Traffic Card -->
-            ${trafficHtml}
+            <div id="traffic-container">${trafficHtml}</div>
         </div>
         
         <!-- Actions -->
@@ -1414,7 +1482,7 @@ export class StatusManager {
         <!-- Footer -->
         <div class="footer">
             <span>${t.autoRefresh}: <span class="countdown-num" id="countdown">${this.secondsUntilRefresh}</span>s</span>
-            <span>${t.updated} ${status.lastUpdated.toLocaleTimeString()}</span>
+            <span id="last-updated">${t.updated} ${status.lastUpdated.toLocaleTimeString()}</span>
         </div>
     </div>
     
@@ -1462,9 +1530,86 @@ export class StatusManager {
         
         window.addEventListener('message', event => {
             const message = event.data;
+
             if (message.command === 'updateCountdown') {
                 const el = document.getElementById('countdown');
                 if (el) el.textContent = message.seconds;
+            }
+
+            if (message.command === 'updateStatus') {
+                const m = message;
+
+                // --- Status indicator dot ---
+                const dot = document.getElementById('status-dot');
+                if (dot) {
+                    dot.style.background = m.statusColor;
+                    dot.style.boxShadow = '0 0 12px ' + m.statusColor + '60';
+                }
+
+                // --- Status badge ---
+                const badge = document.getElementById('status-badge-text');
+                if (badge) {
+                    badge.textContent = m.statusText;
+                    badge.style.color = m.statusColor;
+                    badge.style.background = m.statusColor + '15';
+                }
+
+                if (isLocal) {
+                    // SSH forwarding value
+                    const sshVal = document.getElementById('ssh-fwd-val');
+                    if (sshVal) {
+                        sshVal.textContent = m.sshConfigEnabled ? m.t.on : m.t.off;
+                        sshVal.className = 'row-value ' + (m.sshConfigEnabled ? 'success' : 'error');
+                    }
+                    // Local proxy reachability
+                    const localVal = document.getElementById('local-proxy-val');
+                    if (localVal) {
+                        localVal.textContent = m.localProxyReachable ? m.t.reachable : m.t.unreachable;
+                        localVal.className = 'row-value ' + (m.localProxyReachable ? 'success' : 'error');
+                    }
+                } else {
+                    // Remote proxy reachability
+                    const remoteVal = document.getElementById('remote-proxy-val');
+                    if (remoteVal) {
+                        remoteVal.textContent = m.remoteProxyReachable ? m.t.reachable : m.t.unreachable;
+                        remoteVal.className = 'row-value ' + (m.remoteProxyReachable ? 'success' : 'error');
+                    }
+                    const remoteHost = document.getElementById('remote-proxy-host-extra');
+                    if (remoteHost) { remoteHost.textContent = m.remoteProxyHost; }
+
+                    // Language server row
+                    const lsRow = document.getElementById('lang-server-row');
+                    if (lsRow) {
+                        if (m.languageServerConfigured !== undefined) {
+                            lsRow.style.display = '';
+                            const lsVal = document.getElementById('lang-server-val');
+                            if (lsVal) {
+                                lsVal.textContent = m.languageServerConfigured ? m.t.configured : m.t.notConfigured;
+                                lsVal.className = 'row-value ' + (m.languageServerConfigured ? 'success' : 'error');
+                            }
+                        } else {
+                            lsRow.style.display = 'none';
+                        }
+                    }
+
+                    // Tunnel alert visibility
+                    const tunnelAlert = document.getElementById('tunnel-alert');
+                    if (tunnelAlert) {
+                        tunnelAlert.style.display = m.remoteProxyReachable ? 'none' : 'flex';
+                    }
+                }
+
+                // Last updated time
+                const lastUpdated = document.getElementById('last-updated');
+                if (lastUpdated) {
+                    lastUpdated.textContent = m.t.updated + ' ' + m.lastUpdated;
+                }
+
+                // Traffic section (innerHTML replace, does not affect form inputs above)
+                const trafficContainer = document.getElementById('traffic-container');
+                if (trafficContainer && m.trafficHtml !== undefined) {
+                    trafficContainer.innerHTML = m.trafficHtml;
+                }
             }
         });
     </script>
@@ -1489,10 +1634,10 @@ export class StatusManager {
             const isLocalCheck = ['local-proxy', 'ssh-config'].includes(check.id);
             const isRemoteCheck = !isLocalCheck;
             const isDisabled = (isLocal && isRemoteCheck) || (!isLocal && isLocalCheck);
-            
+
             let statusText = '';
             let statusClass = '';
-            
+
             if (isDisabled) {
                 statusText = isLocal ? t.remoteOnly : t.localOnly;
                 statusClass = 'muted';
@@ -1512,26 +1657,26 @@ export class StatusManager {
                 statusText = '✗';
                 statusClass = 'error';
             }
-            
+
             // Get message and suggestion from the check
             const message = (check as DiagnosticCheck).message;
             const suggestion = (check as DiagnosticCheck).suggestion;
             const protocolResults = (check as DiagnosticCheck).protocolResults;
             const hasDetails = !isDisabled && (message || suggestion || protocolResults);
-            
+
             // Generate protocol list HTML for external-connectivity check
             let protocolListHtml = '';
             if (check.id === 'external-connectivity' && protocolResults && protocolResults.length > 0) {
                 protocolListHtml = `
                     <div class="protocol-list">
                         ${protocolResults.map((result: ProtocolTestResult, index: number) => {
-                            const isLast = index === protocolResults.length - 1;
-                            const prefix = isLast ? '└──' : '├──';
-                            const statusIcon = result.success ? '✓' : '✗';
-                            const statusClass = result.success ? 'success' : 'error';
-                            const statusText = result.success ? 'Available' : 'Not working';
-                            const currentLabel = result.isCurrent ? ' ← Current' : '';
-                            return `
+                    const isLast = index === protocolResults.length - 1;
+                    const prefix = isLast ? '└──' : '├──';
+                    const statusIcon = result.success ? '✓' : '✗';
+                    const statusClass = result.success ? 'success' : 'error';
+                    const statusText = result.success ? 'Available' : 'Not working';
+                    const currentLabel = result.isCurrent ? ' ← Current' : '';
+                    return `
                                 <div class="protocol-item">
                                     <span class="protocol-prefix">${prefix}</span>
                                     <span class="protocol-name">${result.protocol.toUpperCase()}:</span>
@@ -1539,11 +1684,11 @@ export class StatusManager {
                                     ${result.isCurrent ? `<span class="protocol-current">${currentLabel}</span>` : ''}
                                 </div>
                             `;
-                        }).join('')}
+                }).join('')}
                     </div>
                 `;
             }
-            
+
             return `
                 <div class="diag-item-wrapper">
                     <div class="diag-item">

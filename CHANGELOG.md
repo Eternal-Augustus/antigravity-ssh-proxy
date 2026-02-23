@@ -2,6 +2,16 @@
 
 All notable changes to the "Antigravity SSH Proxy" extension will be documented in this file.
 
+## [0.0.13] - 2026-02-23
+
+### Improved
+
+- **Port Configuration Tips**: Added inline tips below port input fields in the ATP Status Panel to help users configure ports correctly:
+  - **Local Panel — Local Port**: Tip clarifies this must match the listening port of local proxy software (e.g., Clash, V2Ray), typically `7890`.
+  - **Local Panel — Remote Port**: Tip clarifies this is the SSH tunnel's listening port on the remote side, and must match the "Proxy Port" in the Remote ATP panel.
+  - **Remote Panel — Proxy Port**: Tip clarifies this is the SSH tunnel's listening port on the remote side, and must match the "Remote Port" in the Local ATP panel.
+- Both Chinese and English tip strings are supported via the existing i18n system.
+
 ## [0.0.9] - 2026-02-05
 
 ### Added
