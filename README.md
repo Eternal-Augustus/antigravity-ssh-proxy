@@ -11,8 +11,7 @@
 [![License](https://img.shields.io/github/license/dinobot22/antigravity-ssh-proxy)](https://github.com/dinobot22/antigravity-ssh-proxy/blob/main/LICENSE)
 
 </div>
-
-这是一个专为 **Antigravity** 设计的扩展（[Open VSX 地址](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy)），旨在简化 SSH 远程代理配置。ATP 通过安全路由绕过服务器防火墙，保障远程开发环境的连通性。
+这是一个专为 **Antigravity** 设计的扩展（[Open VSX 地址](https://open-vsx.org/extension/dinobot22/antigravity-ssh-proxy) ， 用于将 SSH 远程服务器的网络流量通过反向隧道路由至本地代理, 实现远程服务器复用本地的代理能力，从而恢复SSH远程服务器上的 AI 功能。
 
 > ✨ **无需 root 权限** - 所有操作均在用户空间完成，安全便捷！
 
