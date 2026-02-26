@@ -808,11 +808,36 @@ async function runSetupScriptSilently(proxyHost: string, proxyPort: number, prox
 			(output.includes('configured') && !output.includes('Already configured'));
 
 		if (isNewConfig) {
-			// New configuration - always prompt reload
+			// New configuration or version update - need to restart LS
 			log('Setup: New configuration applied');
-			promptReloadWindow(
-				'Antigravity proxy configured. Reload window to apply changes to the language server.'
-			);
+			
+			// Check if LS is in persistent mode - if so, need to kill it first
+			// Otherwise the new wrapper won't take effect even after reload
+			const lsProcess = await getLanguageServerProcess();
+			if (lsProcess && lsProcess.isPersistent) {
+				log('Setup: LS is in persistent_mode, killing to apply new configuration');
+				const killed = await killLanguageServer();
+				if (killed) {
+					promptReloadWindow(
+						'Antigravity proxy updated. Language Server restarted. Please reload the window to reconnect.'
+					);
+				} else {
+					vscode.window.showWarningMessage(
+						'Proxy updated but Language Server needs restart. ' +
+						'Run in terminal: kill $(pgrep -f language_server_linux) && then reload window.',
+						'Reload Now'
+					).then(selection => {
+						if (selection === 'Reload Now') {
+							vscode.commands.executeCommand('workbench.action.reloadWindow');
+						}
+					});
+				}
+			} else {
+				// Non-persistent mode or LS not running - regular reload is fine
+				promptReloadWindow(
+					'Antigravity proxy configured. Reload window to apply changes to the language server.'
+				);
+			}
 			return true;
 		} else if (output.includes('Already configured')) {
 			log('Setup: Already configured');

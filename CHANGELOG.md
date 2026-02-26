@@ -10,6 +10,9 @@ All notable changes to the "Antigravity SSH Proxy" extension will be documented 
   - Antigravity 1.19+ introduced `--persistent_mode` which keeps the LS running across window reloads
   - If LS started before wrapper was configured, it would not use proxy even after reload
   - Now automatically detects this scenario and kills the LS process to force restart through wrapper
+- **Plugin Update in Persistent Mode**: Fixed new plugin features not taking effect after update when LS is in persistent mode
+  - Previously, updating the plugin would update the wrapper but LS wouldn't restart
+  - Now automatically kills LS when a new configuration is applied, ensuring new features take effect
 
 ### Added
 
